@@ -1,0 +1,156 @@
+/// <reference types="vite/client" />
+import { useEffect } from 'react'
+import { Application, Ticker } from 'pixi.js'
+import type Stats from 'stats.js'
+import { useGameStore } from './store'
+import { InputState } from './input'
+import { ObjectPool } from './ObjectPool'
+import { Ship } from './entities/Ship'
+import { Asteroid } from './entities/Asteroid'
+import { Bullet } from './entities/Bullet'
+import { circlesOverlap } from './collision'
+import { asteroidsForLevel, speedForLevel, fireCooldownForLevel } from './progression'
+import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT } from './constants'
+import { ParticleSystem } from './effects/ParticleSystem'
+import { Thruster }       from './effects/Thruster'
+import { createStarField } from './effects/StarField'
+import { screenShake }    from './effects/screenShake'
+
+export function useGameLoop(app: Application) {
+  useEffect(() => {
+    const stage   = app.stage
+    const input   = new InputState()
+    const bullets   = new ObjectPool(() => new Bullet(stage), BULLET_POOL_SIZE)
+    const particles = new ParticleSystem(stage)
+    const thruster  = new Thruster(stage)
+    createStarField(stage)
+
+    let stats: Stats | null = null
+    if (import.meta.env.DEV) {
+      import('stats.js').then(({ default: Stats }) => {
+        stats = new Stats()
+        stats.showPanel(0)
+        Object.assign(stats.dom.style, { position: 'fixed', top: '0', left: '0', zIndex: '9999' })
+        document.body.appendChild(stats.dom)
+      })
+    }
+
+    let ship:          Ship | null = null
+    let asteroids:     Asteroid[]  = []
+    let fireCooldown   = 0
+    let pauseWasDown   = false
+    let confirmWasDown = false
+
+    function spawnWave(level: number) {
+      for (let i = 0; i < asteroidsForLevel(level); i++) {
+        asteroids.push(new Asteroid(stage, 'large'))
+      }
+    }
+
+    function startGame() {
+      asteroids.forEach(a => a.destroy())
+      asteroids = []
+      bullets.releaseAll(b => b.deactivate())
+      ship?.destroy()
+      useGameStore.getState().resetGame()
+      ship = new Ship(stage)
+      spawnWave(1)
+    }
+
+    function tick(dt: number) {
+      const { phase, level } = useGameStore.getState()
+      const snap = input.snapshot()
+
+      if (phase === 'menu') {
+        if (snap.confirm && !confirmWasDown) startGame()
+        confirmWasDown = snap.confirm
+        return
+      }
+
+      if (phase === 'gameover') {
+        if (snap.confirm && !confirmWasDown) startGame()
+        confirmWasDown = snap.confirm
+        return
+      }
+
+      if (snap.pause && !pauseWasDown) {
+        useGameStore.getState().setPhase(phase === 'paused' ? 'playing' : 'paused')
+      }
+      pauseWasDown = snap.pause
+      if (phase === 'paused') return
+
+      // ── playing ──────────────────────────────────────────────
+      const speedMult       = speedForLevel(level) * dt
+      const fireCooldownNow = fireCooldownForLevel(level)
+
+      if (ship) ship.update(snap)
+
+      if (ship) {
+        thruster.update(ship.pos.x, ship.pos.y, ship.rotation, ship.thrustOn)
+      }
+      particles.update()
+
+      if (snap.fire && fireCooldown <= 0 && ship) {
+        const b = bullets.acquire()
+        if (b) {
+          b.init(ship.pos, ship.rotation)
+          fireCooldown = fireCooldownNow
+        }
+      }
+      if (fireCooldown > 0) fireCooldown -= dt
+
+      bullets.forEach(b => b.update())
+      asteroids.forEach(a => a.update(speedMult))
+
+      // Bullet ↔ Asteroid
+      const fragments: Asteroid[] = []
+      bullets.forEach(bullet => {
+        for (const asteroid of asteroids) {
+          if (!bullet.active || !asteroid.active) continue
+          if (circlesOverlap(bullet.pos, bullet.radius, asteroid.pos, asteroid.radius)) {
+            bullet.deactivate()
+            useGameStore.getState().addScore(ASTEROID_SCORE[asteroid.size])
+            fragments.push(...asteroid.split(stage))
+            const burstCount = asteroid.size === 'large' ? 18 : asteroid.size === 'medium' ? 12 : 7
+            particles.burst(asteroid.pos, burstCount, COLOR_ACCENT)
+            asteroid.destroy()
+            break
+          }
+        }
+      })
+      asteroids = asteroids.filter(a => a.active)
+      asteroids.push(...fragments)
+
+      // Ship ↔ Asteroid
+      if (ship && ship.invincible === 0) {
+        for (const asteroid of asteroids) {
+          if (circlesOverlap(ship.pos, 10, asteroid.pos, asteroid.radius)) {
+            ship.hit()
+            useGameStore.getState().loseLife()
+            screenShake(app.ticker, stage)
+            break
+          }
+        }
+      }
+
+      // Wave complete
+      if (asteroids.length === 0) {
+        const nextLevel = useGameStore.getState().level + 1
+        useGameStore.getState().nextLevel()
+        spawnWave(nextLevel)
+      }
+    }
+
+    const wrappedTick = (ticker: Ticker) => { stats?.begin(); tick(ticker.deltaTime); stats?.end() }
+    app.ticker.add(wrappedTick)
+
+    return () => {
+      app.ticker?.remove(wrappedTick)
+      ship?.destroy()
+      asteroids.forEach(a => a.destroy())
+      bullets.releaseAll()
+      input.destroy()
+      if (stats?.dom.parentNode) stats.dom.parentNode.removeChild(stats.dom)
+    }
+  }, [app])
+}

@@ -1,0 +1,19 @@
+.ab-root {
+  --ab-bg:       #0a0a0f;
+  --ab-surface:  #13131a;
+  --ab-accent:   #4f8cff;
+  --ab-text:     #e8e8f0;
+  --ab-dim:      #6e6e85;
+  --ab-muted:    #3a3a50;
+  --ab-mono:     'JetBrains Mono', monospace;
+  --ab-display:  'Syne', sans-serif;
+  --ab-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  position:         relative;
+  width:            100%;
+  height:           100%;
+  background-color: var(--ab-bg);
+  overflow:         hidden;
+  font-family:      var(--ab-mono);
+  color:            var(--ab-text);
+}
