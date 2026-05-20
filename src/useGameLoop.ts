@@ -150,6 +150,7 @@ export function useGameLoop(app: Application) {
       asteroids.forEach(a => a.destroy())
       bullets.releaseAll()
       input.destroy()
+      useGameStore.getState().setPhase('menu')
       if (stats?.dom.parentNode) stats.dom.parentNode.removeChild(stats.dom)
     }
   }, [app])
