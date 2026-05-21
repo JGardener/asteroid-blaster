@@ -19,6 +19,7 @@ import { screenShake }    from './effects/screenShake'
 export function useGameLoop(app: Application, onError?: (err: Error) => void) {
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
+
   useEffect(() => {
     const stage   = app.stage
     const input   = new InputState()

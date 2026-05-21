@@ -39,6 +39,7 @@ export default function PixiCanvas({ onAppReady, onError }: PixiCanvasProps) {
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
         console.error('[AsteroidBlaster] PixiJS init failed:', error)
+        app.destroy(true, { children: true, texture: true })
         onErrorRef.current?.(error)
         return
       }
