@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Application, Ticker } from 'pixi.js'
 import type Stats from 'stats.js'
 import { useGameStore } from './store'
@@ -16,7 +16,9 @@ import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
 import { screenShake }    from './effects/screenShake'
 
-export function useGameLoop(app: Application) {
+export function useGameLoop(app: Application, onError?: (err: Error) => void) {
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
   useEffect(() => {
     const stage   = app.stage
     const input   = new InputState()
@@ -141,7 +143,19 @@ export function useGameLoop(app: Application) {
       }
     }
 
-    const wrappedTick = (ticker: Ticker) => { stats?.begin(); tick(ticker.deltaTime); stats?.end() }
+    const wrappedTick = (ticker: Ticker) => {
+      stats?.begin()
+      try {
+        tick(ticker.deltaTime)
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err))
+        console.error('[AsteroidBlaster] Game loop error:', error)
+        app.ticker.remove(wrappedTick)
+        onErrorRef.current?.(error)  // onErrorRef always holds the latest onError prop
+      } finally {
+        stats?.end()
+      }
+    }
     app.ticker.add(wrappedTick)
 
     return () => {

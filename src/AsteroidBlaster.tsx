@@ -10,10 +10,12 @@ import GameOverScreen from './screens/GameOverScreen'
 
 export interface AsteroidBlasterProps {
   onClose: () => void
+  onError?: (err: Error) => void
 }
 
-export default function AsteroidBlaster({ onClose }: AsteroidBlasterProps) {
+export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterProps) {
   const [app, setApp] = useState<PIXI.Application | null>(null)
+  const [initError, setInitError] = useState<Error | null>(null)
 
   useEffect(() => {
     const el = document.createElement('style')
@@ -26,10 +28,59 @@ export default function AsteroidBlaster({ onClose }: AsteroidBlasterProps) {
     setApp(readyApp)
   }, [])
 
+  const handleError = useCallback((err: Error) => {
+    setInitError(err)
+    onError?.(err)
+  }, [onError])
+
+  if (initError) {
+    return (
+      <div
+        className="ab-root"
+        style={{
+          display:        'flex',
+          flexDirection:  'column',
+          alignItems:     'center',
+          justifyContent: 'center',
+          gap:            '12px',
+        }}
+      >
+        <p
+          style={{
+            color:      'var(--ab-dim)',
+            fontFamily: 'var(--ab-mono)',
+            fontSize:   13,
+            margin:     0,
+          }}
+        >
+          Game failed to load
+        </p>
+        <button
+          onClick={onClose}
+          aria-label="Close game"
+          style={{
+            background:    'none',
+            border:        '1px solid var(--ab-muted)',
+            borderRadius:  4,
+            padding:       '4px 10px',
+            color:         'var(--ab-dim)',
+            fontFamily:    'var(--ab-mono)',
+            fontSize:      10,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            cursor:        'pointer',
+          }}
+        >
+          Close
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="ab-root">
-      <PixiCanvas onAppReady={handleAppReady} />
-      {app && <GameLoop app={app} />}
+      <PixiCanvas onAppReady={handleAppReady} onError={handleError} />
+      {app && <GameLoop app={app} onError={handleError} />}
       <GameHUD />
       <MenuScreen />
       <PauseScreen />
@@ -66,7 +117,6 @@ export default function AsteroidBlaster({ onClose }: AsteroidBlasterProps) {
       >
         Esc ×
       </button>
-
     </div>
   )
 }
