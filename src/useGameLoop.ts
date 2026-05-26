@@ -15,6 +15,9 @@ import { ParticleSystem } from './effects/ParticleSystem'
 import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
 import { screenShake }    from './effects/screenShake'
+import { AudioEngine }    from './AudioEngine'
+import { tickAudio }      from './tickAudio'
+import type { AudioTickInput } from './tickAudio'
 
 export function useGameLoop(app: Application, onError?: (err: Error) => void) {
   const onErrorRef = useRef(onError)
@@ -22,6 +25,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
   useEffect(() => {
     const stage   = app.stage
+    const audio   = new AudioEngine()
     const input   = new InputState()
     const bullets   = new ObjectPool(() => new Bullet(stage), BULLET_POOL_SIZE)
     const particles = new ParticleSystem(stage)
@@ -63,16 +67,23 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     function tick(dt: number) {
       const { phase, level } = useGameStore.getState()
       const snap = input.snapshot()
+      const ae: AudioTickInput = { fired: false, explosions: [], shipHit: false, waveCleared: false, gameStarted: false }
+
+      // Resume AudioContext on first user gesture (browser autoplay policy)
+      const anyInput = snap.thrust || snap.fire || snap.left || snap.right || snap.pause || snap.confirm
+      if (anyInput) audio.resume()
 
       if (phase === 'menu') {
-        if (snap.confirm && !confirmWasDown) startGame()
+        if (snap.confirm && !confirmWasDown) { ae.gameStarted = true; startGame() }
         confirmWasDown = snap.confirm
+        tickAudio(ae, audio)
         return
       }
 
       if (phase === 'gameover') {
-        if (snap.confirm && !confirmWasDown) startGame()
+        if (snap.confirm && !confirmWasDown) { ae.gameStarted = true; startGame() }
         confirmWasDown = snap.confirm
+        tickAudio(ae, audio)
         return
       }
 
@@ -98,6 +109,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         if (b) {
           b.init(ship.pos, ship.rotation)
           fireCooldown = fireCooldownNow
+          ae.fired = true
         }
       }
       if (fireCooldown > 0) fireCooldown -= dt
@@ -116,6 +128,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
             fragments.push(...asteroid.split(stage))
             const burstCount = asteroid.size === 'large' ? 18 : asteroid.size === 'medium' ? 12 : 7
             particles.burst(asteroid.pos, burstCount, COLOR_ACCENT)
+            ae.explosions.push(asteroid.size)
             asteroid.destroy()
             break
           }
@@ -125,12 +138,13 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       asteroids.push(...fragments)
 
       // Ship ↔ Asteroid
-      if (ship && ship.invincible === 0) {
+      if (ship && ship.invincible <= 0) {
         for (const asteroid of asteroids) {
           if (circlesOverlap(ship.pos, 10, asteroid.pos, asteroid.radius)) {
             ship.hit()
             useGameStore.getState().loseLife()
             screenShake(app.ticker, stage)
+            ae.shipHit = true
             break
           }
         }
@@ -141,7 +155,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         const nextLevel = useGameStore.getState().level + 1
         useGameStore.getState().nextLevel()
         spawnWave(nextLevel)
+        ae.waveCleared = true
       }
+
+      tickAudio(ae, audio)
     }
 
     const wrappedTick = (ticker: Ticker) => {
@@ -165,6 +182,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       asteroids.forEach(a => a.destroy())
       bullets.releaseAll()
       input.destroy()
+      audio.destroy()
       useGameStore.getState().setPhase('menu')
       if (stats?.dom.parentNode) stats.dom.parentNode.removeChild(stats.dom)
     }
