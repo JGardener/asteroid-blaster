@@ -84,6 +84,16 @@ describe('Ship — dt normalization', () => {
     expect(s.rotation).toBeCloseTo(before - SHIP_ROTATION_SPEED * 2)
   })
 
+  it('invincibility expires to a negative value, never exactly 0, with fractional dt', () => {
+    const s = new Ship(mockStage())
+    s.hit()
+    const dt = 1.016 // realistic 60 fps dt
+    while (s.invincible > 0) s.update(noInput, dt)
+    // skips past 0 — strict === 0 would never fire
+    expect(s.invincible).toBeLessThan(0)
+    expect(s.invincible).not.toBe(0)
+  })
+
   it('decrements invincibility counter by dt each frame', () => {
     const s = new Ship(mockStage())
     s.hit() // sets invincible = INVINCIBILITY_FRAMES
