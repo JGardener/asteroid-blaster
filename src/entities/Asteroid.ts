@@ -47,10 +47,10 @@ export class Asteroid {
     this.gfx.poly(pts).stroke({ color: COLOR_DIM, width: 1.5 })
   }
 
-  update(speedMult: number): void {
+  update(speedMult: number, dt: number): void {
     this.pos.x    += this.vel.x * speedMult
     this.pos.y    += this.vel.y * speedMult
-    this.rotation += this.rotationSpeed
+    this.rotation += this.rotationSpeed * dt
 
     const r = this.radius
     if (this.pos.x < -r)           this.pos.x += CANVAS_W + r * 2

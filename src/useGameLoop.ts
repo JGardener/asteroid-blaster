@@ -86,12 +86,12 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       const speedMult       = speedForLevel(level) * dt
       const fireCooldownNow = fireCooldownForLevel(level)
 
-      if (ship) ship.update(snap)
+      if (ship) ship.update(snap, dt)
 
       if (ship) {
         thruster.update(ship.pos.x, ship.pos.y, ship.rotation, ship.thrustOn)
       }
-      particles.update()
+      particles.update(dt)
 
       if (snap.fire && fireCooldown <= 0 && ship) {
         const b = bullets.acquire()
@@ -102,8 +102,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       }
       if (fireCooldown > 0) fireCooldown -= dt
 
-      bullets.forEach(b => b.update())
-      asteroids.forEach(a => a.update(speedMult))
+      bullets.forEach(b => b.update(dt))
+      asteroids.forEach(a => a.update(speedMult, dt))
 
       // Bullet ↔ Asteroid
       const fragments: Asteroid[] = []

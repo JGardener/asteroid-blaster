@@ -10,7 +10,7 @@ export function screenShake(
   const origY = stage.pivot.y
   let remaining = frames
 
-  function tick(): void {
+  function tick(t: { deltaTime: number }): void {
     if (remaining <= 0) {
       stage.pivot.x = origX
       stage.pivot.y = origY
@@ -20,7 +20,7 @@ export function screenShake(
     const scale   = remaining / frames
     stage.pivot.x = origX + (Math.random() - 0.5) * intensity * scale * 2
     stage.pivot.y = origY + (Math.random() - 0.5) * intensity * scale * 2
-    remaining--
+    remaining -= t.deltaTime
   }
 
   ticker.add(tick)

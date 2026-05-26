@@ -26,14 +26,14 @@ export class Ship {
     stage.addChild(this.gfx)
   }
 
-  update(input: InputSnapshot): void {
-    if (input.left)  this.rotation -= SHIP_ROTATION_SPEED
-    if (input.right) this.rotation += SHIP_ROTATION_SPEED
+  update(input: InputSnapshot, dt: number): void {
+    if (input.left)  this.rotation -= SHIP_ROTATION_SPEED * dt
+    if (input.right) this.rotation += SHIP_ROTATION_SPEED * dt
 
     this.thrustOn = input.thrust
     if (input.thrust) {
-      this.vel.x += Math.cos(this.rotation) * SHIP_THRUST
-      this.vel.y += Math.sin(this.rotation) * SHIP_THRUST
+      this.vel.x += Math.cos(this.rotation) * SHIP_THRUST * dt
+      this.vel.y += Math.sin(this.rotation) * SHIP_THRUST * dt
       const speed = Math.hypot(this.vel.x, this.vel.y)
       if (speed > SHIP_MAX_SPEED) {
         this.vel.x = (this.vel.x / speed) * SHIP_MAX_SPEED
@@ -41,17 +41,18 @@ export class Ship {
       }
     }
 
-    this.vel.x *= SHIP_DRAG
-    this.vel.y *= SHIP_DRAG
-    this.pos.x += this.vel.x
-    this.pos.y += this.vel.y
+    const drag = Math.pow(SHIP_DRAG, dt)
+    this.vel.x *= drag
+    this.vel.y *= drag
+    this.pos.x += this.vel.x * dt
+    this.pos.y += this.vel.y * dt
 
     if (this.pos.x < 0)        this.pos.x += CANVAS_W
     if (this.pos.x > CANVAS_W) this.pos.x -= CANVAS_W
     if (this.pos.y < 0)        this.pos.y += CANVAS_H
     if (this.pos.y > CANVAS_H) this.pos.y -= CANVAS_H
 
-    if (this.invincible > 0) this.invincible--
+    if (this.invincible > 0) this.invincible -= dt
 
     this.gfx.x        = this.pos.x
     this.gfx.y        = this.pos.y

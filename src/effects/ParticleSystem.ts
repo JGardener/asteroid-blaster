@@ -31,12 +31,13 @@ class PixiParticle {
     this.gfx.visible = true
   }
 
-  update(): boolean {
-    this.pos.x += this.vel.x
-    this.pos.y += this.vel.y
-    this.vel.x *= 0.96
-    this.vel.y *= 0.96
-    this.alpha -= this.decay
+  update(dt: number): boolean {
+    this.pos.x += this.vel.x * dt
+    this.pos.y += this.vel.y * dt
+    const friction = Math.pow(0.96, dt)
+    this.vel.x *= friction
+    this.vel.y *= friction
+    this.alpha -= this.decay * dt
 
     if (this.alpha <= 0) {
       this.active      = false
@@ -70,7 +71,7 @@ export class ParticleSystem {
     }
   }
 
-  update(): void {
-    this.pool.forEach(p => p.update())
+  update(dt: number): void {
+    this.pool.forEach(p => p.update(dt))
   }
 }

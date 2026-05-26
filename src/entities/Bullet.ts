@@ -24,10 +24,10 @@ export class Bullet {
     this.gfx.visible = true
   }
 
-  update(): boolean {
-    this.pos.x += this.vel.x
-    this.pos.y += this.vel.y
-    this.lifetime--
+  update(dt: number): boolean {
+    this.pos.x += this.vel.x * dt
+    this.pos.y += this.vel.y * dt
+    this.lifetime -= dt
 
     const oob =
       this.pos.x < 0 || this.pos.x > CANVAS_W ||
