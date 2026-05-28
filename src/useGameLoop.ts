@@ -47,6 +47,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     let fireCooldown   = 0
     let pauseWasDown   = false
     let confirmWasDown = false
+    let prevPhase      = useGameStore.getState().phase
+    let prevLevel      = useGameStore.getState().level
 
     function spawnWave(level: number) {
       for (let i = 0; i < asteroidsForLevel(level); i++) {
@@ -72,6 +74,16 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       // Resume AudioContext on first user gesture (browser autoplay policy)
       const anyInput = snap.thrust || snap.fire || snap.left || snap.right || snap.pause || snap.confirm
       if (anyInput) audio.resume()
+
+      // Music phase transitions
+      if (phase !== prevPhase) {
+        if (phase === 'playing' && prevPhase !== 'paused') { audio.setMusicIntensity(level); audio.startMusic() }
+        else if (phase === 'playing')                        audio.resumeMusic()
+        else if (phase === 'paused')                         audio.pauseMusic()
+        else if (phase === 'gameover')                       audio.stopMusic()
+        prevPhase = phase
+      }
+      if (level !== prevLevel) { audio.setMusicIntensity(level); prevLevel = level }
 
       if (phase === 'menu') {
         if (snap.confirm && !confirmWasDown) { ae.gameStarted = true; startGame() }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { AudioEngine } from '../AudioEngine'
 import { tickAudio } from '../tickAudio'
 
@@ -142,20 +142,114 @@ describe('destroy', () => {
   })
 })
 
+// ── music ─────────────────────────────────────────────────────────────────────
+
+describe('music', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  describe('startMusic', () => {
+    it('schedules a note after the first scheduler tick fires', () => {
+      const ctx = makeMockCtx()
+      const engine = new AudioEngine(ctx)
+      engine.startMusic()
+      vi.advanceTimersByTime(30) // past one 25ms tick
+      expect(ctx.createOscillator).toHaveBeenCalled()
+    })
+  })
+
+  describe('stopMusic', () => {
+    it('clears the scheduler so no further notes are created', () => {
+      const ctx = makeMockCtx()
+      const engine = new AudioEngine(ctx)
+      engine.startMusic()
+      vi.advanceTimersByTime(30)
+      ;(ctx.createOscillator as ReturnType<typeof vi.fn>).mockClear()
+      engine.stopMusic()
+      vi.advanceTimersByTime(200)
+      expect(ctx.createOscillator).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('pauseMusic', () => {
+    it('ramps master gain toward zero', () => {
+      const ctx = makeMockCtx()
+      const engine = new AudioEngine(ctx)
+      engine.startMusic()
+      // don't advance timers — only master gain exists at this point
+      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[0].value
+      engine.pauseMusic()
+      expect(masterGain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(
+        expect.closeTo(0, 1),
+        expect.any(Number),
+      )
+    })
+  })
+
+  describe('resumeMusic', () => {
+    it('ramps master gain back to 1', () => {
+      const ctx = makeMockCtx()
+      const engine = new AudioEngine(ctx)
+      engine.startMusic()
+      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[0].value
+      engine.pauseMusic()
+      engine.resumeMusic()
+      const calls = (masterGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls
+      const lastCall = calls[calls.length - 1]
+      expect(lastCall[0]).toBeCloseTo(1, 5)
+    })
+  })
+
+  describe('setMusicIntensity', () => {
+    it('schedules more notes per second at level 3 than level 1', () => {
+      function countNotesForLevel(level: number): number {
+        const ctx = makeMockCtx()
+        const mockCtx = ctx as unknown as { currentTime: number }
+        const engine = new AudioEngine(ctx)
+        engine.setMusicIntensity(level)
+        engine.startMusic()
+        vi.advanceTimersByTime(30) // first tick at t=0
+        mockCtx.currentTime = 1   // simulate 1 second elapsed
+        vi.advanceTimersByTime(30) // second tick catches up
+        engine.stopMusic()
+        return (ctx.createOscillator as ReturnType<typeof vi.fn>).mock.calls.length
+      }
+
+      expect(countNotesForLevel(3)).toBeGreaterThan(countNotesForLevel(1))
+    })
+  })
+
+  describe('destroy guard', () => {
+    it('startMusic() is a no-op after destroy', () => {
+      const ctx = makeMockCtx()
+      const engine = new AudioEngine(ctx)
+      engine.destroy()
+      ;(ctx.createGain as ReturnType<typeof vi.fn>).mockClear()
+      engine.startMusic()
+      expect(ctx.createGain).not.toHaveBeenCalled()
+    })
+  })
+})
+
 // ── tickAudio ─────────────────────────────────────────────────────────────────
 
 function makeMockAudio(): AudioEngine {
   return {
-    resume:        vi.fn(),
-    playShoot:     vi.fn(),
-    playExplosion: vi.fn(),
-    playShipDeath: vi.fn(),
-    playUfoAppear: vi.fn(),
-    playUfoShoot:  vi.fn(),
-    playPickup:    vi.fn(),
-    playLevelUp:   vi.fn(),
-    playMenuSelect:vi.fn(),
-    destroy:       vi.fn(),
+    resume:             vi.fn(),
+    playShoot:          vi.fn(),
+    playExplosion:      vi.fn(),
+    playShipDeath:      vi.fn(),
+    playUfoAppear:      vi.fn(),
+    playUfoShoot:       vi.fn(),
+    playPickup:         vi.fn(),
+    playLevelUp:        vi.fn(),
+    playMenuSelect:     vi.fn(),
+    startMusic:         vi.fn(),
+    stopMusic:          vi.fn(),
+    pauseMusic:         vi.fn(),
+    resumeMusic:        vi.fn(),
+    setMusicIntensity:  vi.fn(),
+    destroy:            vi.fn(),
   } as unknown as AudioEngine
 }
 
