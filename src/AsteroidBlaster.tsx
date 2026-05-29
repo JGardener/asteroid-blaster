@@ -84,7 +84,7 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
       {app && <GameLoop app={app} onError={handleError} />}
       <GameHUD />
       <MenuScreen />
-      <PauseScreen />
+      <PauseScreen onClose={onClose} />
       <GameOverScreen />
       <LevelTransitionScreen />
 
