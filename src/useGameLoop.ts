@@ -7,7 +7,7 @@ import { ObjectPool } from './ObjectPool'
 import { Ship } from './entities/Ship'
 import { Asteroid } from './entities/Asteroid'
 import { Bullet } from './entities/Bullet'
-import { circlesOverlap } from './collision'
+import { detectCollisions, type CollisionPair, type CollisionSnapshot } from './collision'
 import { asteroidsForLevel, speedForLevel, fireCooldownForLevel, ufoFrequencyForLevel, ufoAccuracyForLevel } from './progression'
 import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT, TRANSITION_DURATION_MS, INVINCIBILITY_FRAMES, PICKUP_DURATION, UFO_SCORE } from './constants'
 import { Pickup } from './entities/Pickup'
@@ -95,6 +95,87 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       useGameStore.getState().resetGame()
       ship = new Ship(stage)
       spawnWave(1)
+    }
+
+    function respondToCollisions(
+      pairs: CollisionPair[],
+      activeBullets: Bullet[],
+      activeUfoBullets: UfoBullet[],
+      ae: AudioTickInput,
+    ): void {
+      const fragments: Asteroid[] = []
+
+      for (const pair of pairs) {
+        switch (pair.kind) {
+          case 'bulletHitsAsteroid': {
+            const bullet   = activeBullets[pair.bulletId]
+            const asteroid = asteroids[pair.asteroidId]
+            bullet.deactivate()
+            useGameStore.getState().addScore(ASTEROID_SCORE[asteroid.size])
+            fragments.push(...asteroid.split(stage))
+            const burstCount = asteroid.size === 'large' ? 18 : asteroid.size === 'medium' ? 12 : 7
+            particles.burst(asteroid.pos, burstCount, COLOR_ACCENT)
+            ae.explosions.push(asteroid.size)
+            if (asteroid === carrierAsteroid && carrierPickupType) {
+              pickup?.destroy()
+              pickup = new Pickup(stage, { ...asteroid.pos }, carrierPickupType)
+              carrierAsteroid = null
+              carrierPickupType = null
+            }
+            asteroid.destroy()
+            break
+          }
+          case 'bulletHitsUfo': {
+            const bullet = activeBullets[pair.bulletId]
+            bullet.deactivate()
+            useGameStore.getState().addScore(UFO_SCORE)
+            ae.explosions.push('medium')
+            ufo!.destroy()
+            ufo = null
+            break
+          }
+          case 'ufoBulletHitsShip': {
+            const ufoBullet = activeUfoBullets[pair.bulletId]
+            ufoBullet.deactivate()
+            if (activePowerUp?.type === 'Shield') {
+              activePowerUp = null
+              ship!.setPowerUp(null)
+              ship!.invincible = INVINCIBILITY_FRAMES
+            } else {
+              ship!.hit()
+              useGameStore.getState().loseLife()
+              screenShake(app.ticker, stage)
+            }
+            ae.shipHit = true
+            break
+          }
+          case 'shipGrabsPickup': {
+            const type = pickup!.type
+            activePowerUp = { type, remaining: type === 'Shield' ? Infinity : PICKUP_DURATION }
+            ship!.setPowerUp(type)
+            pickup!.destroy()
+            pickup = null
+            ae.pickupCollected = true
+            break
+          }
+          case 'asteroidHitsShip': {
+            if (activePowerUp?.type === 'Shield') {
+              activePowerUp = null
+              ship!.setPowerUp(null)
+              ship!.invincible = INVINCIBILITY_FRAMES
+            } else {
+              ship!.hit()
+              useGameStore.getState().loseLife()
+              screenShake(app.ticker, stage)
+            }
+            ae.shipHit = true
+            break
+          }
+        }
+      }
+
+      asteroids = asteroids.filter(a => a.active)
+      asteroids.push(...fragments)
     }
 
     function tick(dt: number) {
@@ -210,94 +291,23 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       bullets.forEach(b => b.update(dt))
       asteroids.forEach(a => a.update(speedMult, dt))
 
-      // Bullet ↔ Asteroid
-      const fragments: Asteroid[] = []
-      bullets.forEach(bullet => {
-        for (const asteroid of asteroids) {
-          if (!bullet.active || !asteroid.active) continue
-          if (circlesOverlap(bullet.pos, bullet.radius, asteroid.pos, asteroid.radius)) {
-            bullet.deactivate()
-            useGameStore.getState().addScore(ASTEROID_SCORE[asteroid.size])
-            fragments.push(...asteroid.split(stage))
-            const burstCount = asteroid.size === 'large' ? 18 : asteroid.size === 'medium' ? 12 : 7
-            particles.burst(asteroid.pos, burstCount, COLOR_ACCENT)
-            ae.explosions.push(asteroid.size)
-            if (asteroid === carrierAsteroid && carrierPickupType) {
-              pickup?.destroy()
-              pickup = new Pickup(stage, { ...asteroid.pos }, carrierPickupType)
-              carrierAsteroid = null; carrierPickupType = null
-            }
-            asteroid.destroy()
-            break
-          }
-        }
-      })
-      asteroids = asteroids.filter(a => a.active)
-      asteroids.push(...fragments)
+      // Collision detection → response
+      const activeBullets: Bullet[]    = []
+      const activeUfoBullets: UfoBullet[] = []
+      bullets.forEach(b => activeBullets.push(b))
+      ufoBullets.forEach(b => activeUfoBullets.push(b))
 
-      // Bullet ↔ UFO
-      if (ufo?.active) {
-        bullets.forEach(bullet => {
-          if (!bullet.active || !ufo?.active) return
-          if (circlesOverlap(bullet.pos, bullet.radius, ufo.pos, ufo.radius)) {
-            bullet.deactivate()
-            useGameStore.getState().addScore(UFO_SCORE)
-            ae.explosions.push('medium')
-            ufo.destroy()
-            ufo = null
-          }
-        })
+      const snapshot: CollisionSnapshot = {
+        ship:       ship ? { pos: ship.pos, radius: 10, invincible: ship.invincible } : null,
+        bullets:    activeBullets.map((b, i) => ({ pos: b.pos, radius: b.radius, id: i })),
+        asteroids:  asteroids.map((a, i)    => ({ pos: a.pos, radius: a.radius, id: i })),
+        ufoBullets: activeUfoBullets.map((b, i) => ({ pos: b.pos, radius: b.radius, id: i })),
+        ufo:        ufo?.active ? { pos: ufo.pos, radius: ufo.radius } : null,
+        pickup:     pickup?.active ? { pos: pickup.pos, radius: pickup.radius } : null,
       }
 
-      // UFO bullet ↔ Ship
-      if (ship && ship.invincible <= 0) {
-        ufoBullets.forEach(ufoBullet => {
-          if (!ufoBullet.active || !ship) return
-          if (circlesOverlap(ufoBullet.pos, ufoBullet.radius, ship.pos, 10)) {
-            ufoBullet.deactivate()
-            if (activePowerUp?.type === 'Shield') {
-              activePowerUp = null
-              ship.setPowerUp(null)
-              ship.invincible = INVINCIBILITY_FRAMES
-            } else {
-              ship.hit()
-              useGameStore.getState().loseLife()
-              screenShake(app.ticker, stage)
-            }
-            ae.shipHit = true
-          }
-        })
-      }
-
-      // Ship ↔ Pickup
-      if (ship && pickup?.active) {
-        if (circlesOverlap(ship.pos, 10, pickup.pos, pickup.radius)) {
-          const type = pickup.type
-          activePowerUp = { type, remaining: type === 'Shield' ? Infinity : PICKUP_DURATION }
-          ship.setPowerUp(type)
-          pickup.destroy(); pickup = null
-          ae.pickupCollected = true
-        }
-      }
-
-      // Ship ↔ Asteroid
-      if (ship && ship.invincible <= 0) {
-        for (const asteroid of asteroids) {
-          if (circlesOverlap(ship.pos, 10, asteroid.pos, asteroid.radius)) {
-            if (activePowerUp?.type === 'Shield') {
-              activePowerUp = null
-              ship.setPowerUp(null)
-              ship.invincible = INVINCIBILITY_FRAMES
-            } else {
-              ship.hit()
-              useGameStore.getState().loseLife()
-              screenShake(app.ticker, stage)
-            }
-            ae.shipHit = true
-            break
-          }
-        }
-      }
+      const pairs = detectCollisions(snapshot)
+      respondToCollisions(pairs, activeBullets, activeUfoBullets, ae)
 
       // Power-up timer
       if (activePowerUp) {

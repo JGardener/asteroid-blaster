@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { circlesOverlap } from '../collision'
+import { circlesOverlap, wrapPosition } from '../collision'
+import { CANVAS_W, CANVAS_H } from '../constants'
 import {
   asteroidsForLevel, speedForLevel, fireCooldownForLevel,
 } from '../progression'
@@ -7,6 +8,39 @@ import { ObjectPool } from '../ObjectPool'
 import {
   BASE_ASTEROID_COUNT, SPEED_MULTIPLIER_CAP, FIRE_COOLDOWN,
 } from '../constants'
+
+// ── wrapPosition ─────────────────────────────────────────────────────────────
+
+describe('wrapPosition', () => {
+  it('wraps x < -radius to the right off-screen edge', () => {
+    const result = wrapPosition({ x: -15, y: 320 }, 14)
+    expect(result.x).toBe(-15 + CANVAS_W + 14 * 2)
+    expect(result.y).toBe(320)
+  })
+
+  it('wraps x > CANVAS_W + radius to the left off-screen edge', () => {
+    const result = wrapPosition({ x: 975, y: 320 }, 14)
+    expect(result.x).toBe(975 - CANVAS_W - 14 * 2)
+    expect(result.y).toBe(320)
+  })
+
+  it('wraps y < -radius to the bottom off-screen edge', () => {
+    const result = wrapPosition({ x: 480, y: -15 }, 14)
+    expect(result.x).toBe(480)
+    expect(result.y).toBe(-15 + CANVAS_H + 14 * 2)
+  })
+
+  it('wraps y > CANVAS_H + radius to the top off-screen edge', () => {
+    const result = wrapPosition({ x: 480, y: 655 }, 14)
+    expect(result.x).toBe(480)
+    expect(result.y).toBe(655 - CANVAS_H - 14 * 2)
+  })
+
+  it('returns mid-canvas position unchanged', () => {
+    const result = wrapPosition({ x: 480, y: 320 }, 14)
+    expect(result).toEqual({ x: 480, y: 320 })
+  })
+})
 
 // ── circlesOverlap ────────────────────────────────────────────────────────────
 

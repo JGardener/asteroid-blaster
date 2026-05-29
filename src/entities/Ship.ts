@@ -7,6 +7,7 @@ import {
   SHIP_DRAG, SHIP_RADIUS, CANVAS_W, CANVAS_H,
   INVINCIBILITY_FRAMES, COLOR_ACCENT,
 } from '../constants'
+import { wrapPosition } from '../collision'
 
 export class Ship {
   readonly gfx: Graphics
@@ -48,10 +49,7 @@ export class Ship {
     this.pos.x += this.vel.x * dt
     this.pos.y += this.vel.y * dt
 
-    if (this.pos.x < 0)        this.pos.x += CANVAS_W
-    if (this.pos.x > CANVAS_W) this.pos.x -= CANVAS_W
-    if (this.pos.y < 0)        this.pos.y += CANVAS_H
-    if (this.pos.y > CANVAS_H) this.pos.y -= CANVAS_H
+    this.pos = wrapPosition(this.pos, 0)
 
     if (this.invincible > 0) this.invincible -= dt
 

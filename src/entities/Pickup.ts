@@ -1,7 +1,8 @@
 import { Graphics, Container } from 'pixi.js'
 import type { Vec2 } from '../types'
 import type { PickupType } from '../powerup'
-import { CANVAS_W, CANVAS_H, COLOR_ACCENT, COLOR_DIM } from '../constants'
+import { COLOR_ACCENT, COLOR_DIM } from '../constants'
+import { wrapPosition } from '../collision'
 
 export const PICKUP_RADIUS = 14
 const PICKUP_SPEED = 0.6
@@ -60,10 +61,7 @@ export class Pickup {
     this.pos.x += this.vel.x * dt
     this.pos.y += this.vel.y * dt
 
-    if (this.pos.x < -PICKUP_RADIUS)           this.pos.x += CANVAS_W + PICKUP_RADIUS * 2
-    if (this.pos.x > CANVAS_W + PICKUP_RADIUS) this.pos.x -= CANVAS_W + PICKUP_RADIUS * 2
-    if (this.pos.y < -PICKUP_RADIUS)           this.pos.y += CANVAS_H + PICKUP_RADIUS * 2
-    if (this.pos.y > CANVAS_H + PICKUP_RADIUS) this.pos.y -= CANVAS_H + PICKUP_RADIUS * 2
+    this.pos = wrapPosition(this.pos, PICKUP_RADIUS)
 
     this.gfx.x = this.pos.x
     this.gfx.y = this.pos.y

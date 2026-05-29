@@ -4,6 +4,7 @@ import {
   ASTEROID_RADII, ASTEROID_VERTICES_MIN, ASTEROID_VERTICES_MAX,
   ASTEROID_JITTER, CANVAS_W, CANVAS_H, COLOR_DIM,
 } from '../constants'
+import { wrapPosition } from '../collision'
 
 export class Asteroid {
   active:          boolean = true
@@ -52,11 +53,7 @@ export class Asteroid {
     this.pos.y    += this.vel.y * speedMult
     this.rotation += this.rotationSpeed * dt
 
-    const r = this.radius
-    if (this.pos.x < -r)           this.pos.x += CANVAS_W + r * 2
-    if (this.pos.x > CANVAS_W + r) this.pos.x -= CANVAS_W + r * 2
-    if (this.pos.y < -r)           this.pos.y += CANVAS_H + r * 2
-    if (this.pos.y > CANVAS_H + r) this.pos.y -= CANVAS_H + r * 2
+    this.pos = wrapPosition(this.pos, this.radius)
 
     this.gfx.x        = this.pos.x
     this.gfx.y        = this.pos.y
