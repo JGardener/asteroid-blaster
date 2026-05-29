@@ -8,6 +8,9 @@ export class AudioEngine {
   private ctx: AudioContext
   private dead = false
 
+  private sfxGain: GainNode
+  private musicGain: GainNode
+
   private musicInterval: ReturnType<typeof setInterval> | null = null
   private masterGain: GainNode | null = null
   private nextNoteTime = 0
@@ -16,10 +19,24 @@ export class AudioEngine {
 
   constructor(ctx?: AudioContext) {
     this.ctx = ctx ?? new AudioContext()
+    this.sfxGain = this.ctx.createGain() as unknown as GainNode
+    this.sfxGain.gain.setValueAtTime(1, this.ctx.currentTime)
+    this.sfxGain.connect(this.ctx.destination)
+    this.musicGain = this.ctx.createGain() as unknown as GainNode
+    this.musicGain.gain.setValueAtTime(1, this.ctx.currentTime)
+    this.musicGain.connect(this.ctx.destination)
   }
 
   async resume(): Promise<void> {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
+  }
+
+  setSfxVolume(v: number): void {
+    this.sfxGain.gain.setValueAtTime(v, this.ctx.currentTime)
+  }
+
+  setMusicVolume(v: number): void {
+    this.musicGain.gain.setValueAtTime(v, this.ctx.currentTime)
   }
 
   playShoot(): void {
@@ -33,7 +50,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.25, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.1)
   }
@@ -51,7 +68,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.4, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + dur)
   }
@@ -67,7 +84,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.5, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 1.5)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 1.5)
   }
@@ -84,7 +101,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.2, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.6)
   }
@@ -100,7 +117,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.2, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.12)
   }
@@ -117,7 +134,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.3, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.3)
   }
@@ -135,7 +152,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.3, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.5)
   }
@@ -150,7 +167,7 @@ export class AudioEngine {
     gain.gain.setValueAtTime(0.15, t)
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
     osc.connect(gain)
-    gain.connect(this.ctx.destination)
+    gain.connect(this.sfxGain as unknown as AudioNode)
     osc.start(t)
     osc.stop(t + 0.05)
   }
@@ -159,7 +176,7 @@ export class AudioEngine {
     if (this.dead || this.musicInterval !== null) return
     this.masterGain = this.ctx.createGain() as unknown as GainNode
     this.masterGain.gain.setValueAtTime(1, this.ctx.currentTime)
-    this.masterGain.connect(this.ctx.destination)
+    this.masterGain.connect(this.musicGain as unknown as AudioNode)
     this.nextNoteTime = this.ctx.currentTime
     this.musicInterval = setInterval(() => this.scheduleTick(), TICK_MS)
   }

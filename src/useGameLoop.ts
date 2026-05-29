@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 import { useEffect, useRef } from 'react'
 import { Application, Ticker } from 'pixi.js'
-import type Stats from 'stats.js'
 import { useGameStore } from './store'
 import { InputState } from './input'
 import { ObjectPool } from './ObjectPool'
@@ -22,6 +21,7 @@ import { screenShake }    from './effects/screenShake'
 import { AudioEngine }    from './AudioEngine'
 import { tickAudio }      from './tickAudio'
 import type { AudioTickInput } from './tickAudio'
+import { useAudioStore }  from './audioStore'
 
 export function useGameLoop(app: Application, onError?: (err: Error) => void) {
   const onErrorRef = useRef(onError)
@@ -36,15 +36,13 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     const thruster  = new Thruster(stage)
     createStarField(stage)
 
-    let stats: Stats | null = null
-    if (import.meta.env.DEV) {
-      import('stats.js').then(({ default: Stats }) => {
-        stats = new Stats()
-        stats.showPanel(0)
-        Object.assign(stats.dom.style, { position: 'fixed', top: '0', left: '0', zIndex: '9999' })
-        document.body.appendChild(stats.dom)
-      })
-    }
+    const { sfxVolume, musicVolume, isMuted } = useAudioStore.getState()
+    audio.setSfxVolume(isMuted ? 0 : sfxVolume)
+    audio.setMusicVolume(isMuted ? 0 : musicVolume)
+    const unsubAudio = useAudioStore.subscribe(({ sfxVolume, musicVolume, isMuted }) => {
+      audio.setSfxVolume(isMuted ? 0 : sfxVolume)
+      audio.setMusicVolume(isMuted ? 0 : musicVolume)
+    })
 
     const PICKUP_TYPES: PickupType[] = ['SpreadShot', 'RapidFire', 'Shield']
 
@@ -317,7 +315,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     }
 
     const wrappedTick = (ticker: Ticker) => {
-      stats?.begin()
       try {
         tick(ticker.deltaTime)
       } catch (err) {
@@ -326,7 +323,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         app.ticker.remove(wrappedTick)
         onErrorRef.current?.(error)  // onErrorRef always holds the latest onError prop
       } finally {
-        stats?.end()
       }
     }
     app.ticker.add(wrappedTick)
@@ -341,8 +337,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       pickup?.destroy()
       input.destroy()
       audio.destroy()
+      unsubAudio()
       useGameStore.getState().setPhase('menu')
-      if (stats?.dom.parentNode) stats.dom.parentNode.removeChild(stats.dom)
     }
   }, [app])
 }

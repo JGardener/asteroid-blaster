@@ -95,6 +95,30 @@ describe('playExplosion', () => {
   })
 })
 
+// ── setSfxVolume ──────────────────────────────────────────────────────────────
+
+describe('setSfxVolume', () => {
+  it('sets the sfxGain node gain value', () => {
+    const ctx = makeMockCtx()
+    const engine = new AudioEngine(ctx)
+    engine.setSfxVolume(0.5)
+    const sfxGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[0].value
+    expect(sfxGain.gain.setValueAtTime).toHaveBeenCalledWith(0.5, expect.any(Number))
+  })
+})
+
+// ── setMusicVolume ────────────────────────────────────────────────────────────
+
+describe('setMusicVolume', () => {
+  it('sets the musicGain node gain value', () => {
+    const ctx = makeMockCtx()
+    const engine = new AudioEngine(ctx)
+    engine.setMusicVolume(0.5)
+    const musicGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[1].value
+    expect(musicGain.gain.setValueAtTime).toHaveBeenCalledWith(0.5, expect.any(Number))
+  })
+})
+
 // ── remaining sounds (smoke tests) ───────────────────────────────────────────
 
 describe.each([
@@ -176,8 +200,8 @@ describe('music', () => {
       const ctx = makeMockCtx()
       const engine = new AudioEngine(ctx)
       engine.startMusic()
-      // don't advance timers — only master gain exists at this point
-      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[0].value
+      // results[0]=sfxGain, results[1]=musicGain (constructor), results[2]=masterGain (startMusic)
+      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[2].value
       engine.pauseMusic()
       expect(masterGain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(
         expect.closeTo(0, 1),
@@ -191,7 +215,7 @@ describe('music', () => {
       const ctx = makeMockCtx()
       const engine = new AudioEngine(ctx)
       engine.startMusic()
-      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[0].value
+      const masterGain = (ctx.createGain as ReturnType<typeof vi.fn>).mock.results[2].value
       engine.pauseMusic()
       engine.resumeMusic()
       const calls = (masterGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls
@@ -249,6 +273,8 @@ function makeMockAudio(): AudioEngine {
     pauseMusic:         vi.fn(),
     resumeMusic:        vi.fn(),
     setMusicIntensity:  vi.fn(),
+    setSfxVolume:       vi.fn(),
+    setMusicVolume:     vi.fn(),
     destroy:            vi.fn(),
   } as unknown as AudioEngine
 }
