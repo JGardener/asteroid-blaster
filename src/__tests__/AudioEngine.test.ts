@@ -293,4 +293,22 @@ describe('tickAudio', () => {
     tickAudio({ ...silent, gameStarted: true }, audio)
     expect(audio.playMenuSelect).toHaveBeenCalledOnce()
   })
+
+  it('plays pickup sound when a pickup is collected', () => {
+    const audio = makeMockAudio()
+    tickAudio({ ...silent, pickupCollected: true }, audio)
+    expect(audio.playPickup).toHaveBeenCalledOnce()
+  })
+
+  it('plays UFO appear sound when a UFO enters', () => {
+    const audio = makeMockAudio()
+    tickAudio({ ...silent, ufoAppeared: true }, audio)
+    expect(audio.playUfoAppear).toHaveBeenCalledOnce()
+  })
+
+  it('plays UFO shoot sound when a UFO fires', () => {
+    const audio = makeMockAudio()
+    tickAudio({ ...silent, ufoShot: true }, audio)
+    expect(audio.playUfoShoot).toHaveBeenCalledOnce()
+  })
 })
