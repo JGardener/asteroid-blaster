@@ -47,19 +47,29 @@ lifecycle, input handling, and teardown.
 ```
 PIXI world                         React world
 ─────────────────────────          ──────────────────────────
-useGameLoop.ts (ticker)   writes►  gameStore.ts (zustand)
+useGameLoop.ts (ticker)   writes►  store.ts (zustand)
   Ship, Asteroid,                    score, lives, phase, level
-  Bullet, Particle                              │
-  StarField, Thruster                           ▼
-                                   GameHUD.tsx  (reads store)
-                                   MenuScreen.tsx
-                                   PauseScreen.tsx
-                                   GameOverScreen.tsx
+  Bullet, Ufo, UfoBullet,                       │
+  Pickup, Particle,                              ▼
+  StarField, Thruster         GameHUD.tsx  (reads store)
+                              MenuScreen.tsx
+tickAudio.ts          calls►  PauseScreen.tsx
+  (per-frame audio            GameOverScreen.tsx
+   dispatch)                  LevelTransitionScreen.tsx
+        │
+        ▼
+  AudioEngine.ts              audioStore.ts (zustand)
+  (Web Audio API)    reads►   volume, muted (persistent prefs)
 ```
 
 The PIXI ticker and React components never reference each other directly.
 Zustand is the only bridge. This keeps the render loop free of React
 overhead and keeps the UI declarative.
+
+Audio runs through a separate path: `tickAudio.ts` is called each frame
+and dispatches sound events to `AudioEngine.ts`, which synthesises audio
+procedurally via the Web Audio API. Volume/mute preferences live in
+`audioStore.ts` (persisted via `localStorage`).
 
 ---
 
@@ -85,8 +95,12 @@ asteroid-blaster/
     ├── constants.ts
     ├── types.ts
     ├── store.ts
+    ├── audioStore.ts                ← volume/mute prefs (persisted)
+    ├── AudioEngine.ts               ← procedural Web Audio synthesis
+    ├── tickAudio.ts                 ← per-frame audio dispatch (called from ticker)
     ├── input.ts
     ├── progression.ts
+    ├── powerup.ts                   ← power-up type definitions and logic
     ├── collision.ts
     ├── ObjectPool.ts
     ├── useGameLoop.ts
@@ -96,16 +110,30 @@ asteroid-blaster/
     ├── entities/
     │   ├── Ship.ts
     │   ├── Asteroid.ts
-    │   └── Bullet.ts
+    │   ├── Bullet.ts
+    │   ├── Ufo.ts
+    │   ├── UfoBullet.ts
+    │   └── Pickup.ts                ← collectible power-up entity
     ├── effects/
     │   ├── ParticleSystem.ts
     │   ├── Thruster.ts
     │   ├── StarField.ts
     │   └── screenShake.ts
-    └── screens/
-        ├── MenuScreen.tsx
-        ├── PauseScreen.tsx
-        └── GameOverScreen.tsx
+    ├── screens/
+    │   ├── MenuScreen.tsx
+    │   ├── PauseScreen.tsx
+    │   ├── GameOverScreen.tsx
+    │   └── LevelTransitionScreen.tsx
+    └── __tests__/
+        ├── setup.ts
+        ├── pure-logic.test.ts
+        ├── delta-time.test.ts
+        ├── pickup.test.ts
+        ├── ufo.test.ts
+        ├── audioStore.test.ts
+        ├── AudioEngine.test.ts
+        ├── PauseScreen.test.tsx
+        └── LevelTransitionScreen.test.tsx
 ```
 
 ---
