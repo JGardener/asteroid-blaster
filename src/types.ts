@@ -1,4 +1,4 @@
-export type GamePhase = 'menu' | 'playing' | 'paused' | 'gameover'
+export type GamePhase = 'menu' | 'playing' | 'paused' | 'gameover' | 'transitioning'
 
 export interface Vec2 {
   x: number

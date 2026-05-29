@@ -4,9 +4,10 @@ import rawCss from './styles.css?inline'
 import PixiCanvas from './PixiCanvas'
 import GameHUD from './GameHUD'
 import GameLoop from './GameLoop'
-import MenuScreen     from './screens/MenuScreen'
-import PauseScreen    from './screens/PauseScreen'
-import GameOverScreen from './screens/GameOverScreen'
+import MenuScreen             from './screens/MenuScreen'
+import PauseScreen            from './screens/PauseScreen'
+import GameOverScreen         from './screens/GameOverScreen'
+import LevelTransitionScreen  from './screens/LevelTransitionScreen'
 
 export interface AsteroidBlasterProps {
   onClose: () => void
@@ -85,6 +86,7 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
       <MenuScreen />
       <PauseScreen />
       <GameOverScreen />
+      <LevelTransitionScreen />
 
       <button
         onClick={onClose}

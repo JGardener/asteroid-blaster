@@ -10,7 +10,7 @@ import { Asteroid } from './entities/Asteroid'
 import { Bullet } from './entities/Bullet'
 import { circlesOverlap } from './collision'
 import { asteroidsForLevel, speedForLevel, fireCooldownForLevel } from './progression'
-import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT } from './constants'
+import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT, TRANSITION_DURATION_MS } from './constants'
 import { ParticleSystem } from './effects/ParticleSystem'
 import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
@@ -42,13 +42,14 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       })
     }
 
-    let ship:          Ship | null = null
-    let asteroids:     Asteroid[]  = []
-    let fireCooldown   = 0
-    let pauseWasDown   = false
-    let confirmWasDown = false
-    let prevPhase      = useGameStore.getState().phase
-    let prevLevel      = useGameStore.getState().level
+    let ship:              Ship | null = null
+    let asteroids:         Asteroid[]  = []
+    let fireCooldown       = 0
+    let pauseWasDown       = false
+    let confirmWasDown     = false
+    let prevPhase          = useGameStore.getState().phase
+    let prevLevel          = useGameStore.getState().level
+    let transitionStart    = 0
 
     function spawnWave(level: number) {
       for (let i = 0; i < asteroidsForLevel(level); i++) {
@@ -75,12 +76,12 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       const anyInput = snap.thrust || snap.fire || snap.left || snap.right || snap.pause || snap.confirm
       if (anyInput) audio.resume()
 
-      // Music phase transitions
+      // Music phase transitions ('transitioning' is transparent — music keeps running)
       if (phase !== prevPhase) {
-        if (phase === 'playing' && prevPhase !== 'paused') { audio.setMusicIntensity(level); audio.startMusic() }
-        else if (phase === 'playing')                        audio.resumeMusic()
-        else if (phase === 'paused')                         audio.pauseMusic()
-        else if (phase === 'gameover')                       audio.stopMusic()
+        if (phase === 'playing' && prevPhase !== 'paused' && prevPhase !== 'transitioning') { audio.setMusicIntensity(level); audio.startMusic() }
+        else if (phase === 'playing')  audio.resumeMusic()
+        else if (phase === 'paused')   audio.pauseMusic()
+        else if (phase === 'gameover') audio.stopMusic()
         prevPhase = phase
       }
       if (level !== prevLevel) { audio.setMusicIntensity(level); prevLevel = level }
@@ -96,6 +97,14 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         if (snap.confirm && !confirmWasDown) { ae.gameStarted = true; startGame() }
         confirmWasDown = snap.confirm
         tickAudio(ae, audio)
+        return
+      }
+
+      if (phase === 'transitioning') {
+        if (performance.now() - transitionStart >= TRANSITION_DURATION_MS) {
+          spawnWave(useGameStore.getState().level)
+          useGameStore.getState().setPhase('playing')
+        }
         return
       }
 
@@ -164,10 +173,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
       // Wave complete
       if (asteroids.length === 0) {
-        const nextLevel = useGameStore.getState().level + 1
-        useGameStore.getState().nextLevel()
-        spawnWave(nextLevel)
         ae.waveCleared = true
+        useGameStore.getState().nextLevel()
+        transitionStart = performance.now()
+        useGameStore.getState().setPhase('transitioning')
       }
 
       tickAudio(ae, audio)
