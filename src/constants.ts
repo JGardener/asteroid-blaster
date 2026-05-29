@@ -37,3 +37,12 @@ export const COLOR_ACCENT = 0x4f8cff
 export const COLOR_DIM    = 0xa0a0b0
 export const COLOR_WHITE  = 0xe8e8f0
 export const STAR_COUNT   = 100
+
+export const UFO_RADIUS       = 18
+export const UFO_SPEED        = 1.5
+export const UFO_FIRE_RATE    = 90     // ticks between shots
+export const UFO_SCORE        = 500
+export const UFO_BULLET_SPEED = 4
+export const UFO_MAX_SPREAD   = Math.PI / 2   // maximum inaccuracy spread (radians)
+export const UFO_COLOR        = 0xff8800
+export const UFO_BULLET_COLOR = 0xff5533

@@ -9,10 +9,12 @@ import { Ship } from './entities/Ship'
 import { Asteroid } from './entities/Asteroid'
 import { Bullet } from './entities/Bullet'
 import { circlesOverlap } from './collision'
-import { asteroidsForLevel, speedForLevel, fireCooldownForLevel } from './progression'
-import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT, TRANSITION_DURATION_MS, INVINCIBILITY_FRAMES, PICKUP_DURATION } from './constants'
+import { asteroidsForLevel, speedForLevel, fireCooldownForLevel, ufoFrequencyForLevel, ufoAccuracyForLevel } from './progression'
+import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT, TRANSITION_DURATION_MS, INVINCIBILITY_FRAMES, PICKUP_DURATION, UFO_SCORE } from './constants'
 import { Pickup } from './entities/Pickup'
 import { type PickupType, spreadShotAngles, effectiveCooldown, tickPowerUp } from './powerup'
+import { Ufo, type UfoSide } from './entities/Ufo'
+import { UfoBullet } from './entities/UfoBullet'
 import { ParticleSystem } from './effects/ParticleSystem'
 import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
@@ -46,6 +48,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
     const PICKUP_TYPES: PickupType[] = ['SpreadShot', 'RapidFire', 'Shield']
 
+    const ufoBullets = new ObjectPool(() => new UfoBullet(stage), 8)
+
     let ship:              Ship | null = null
     let asteroids:         Asteroid[]  = []
     let fireCooldown       = 0
@@ -58,6 +62,17 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     let carrierPickupType: PickupType | null = null
     let pickup:            Pickup | null     = null
     let activePowerUp:     { type: PickupType; remaining: number } | null = null
+    let ufo:               Ufo | null        = null
+    let pendingUfoTimers:  number[]          = []   // countdown timers for scheduled UFOs
+
+    function scheduleUfos(level: number): void {
+      const count    = ufoFrequencyForLevel(level)
+      const waveLen  = asteroidsForLevel(level) * 300   // rough wave duration in ticks
+      pendingUfoTimers = []
+      for (let i = 0; i < count; i++) {
+        pendingUfoTimers.push(60 + Math.floor(Math.random() * (waveLen - 60)))
+      }
+    }
 
     function spawnWave(level: number) {
       for (let i = 0; i < asteroidsForLevel(level); i++) {
@@ -65,14 +80,18 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       }
       carrierAsteroid  = asteroids[Math.floor(Math.random() * asteroids.length)]
       carrierPickupType = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)]
+      scheduleUfos(level)
     }
 
     function startGame() {
       asteroids.forEach(a => a.destroy())
       asteroids = []
       bullets.releaseAll(b => b.deactivate())
+      ufoBullets.releaseAll(b => b.deactivate())
       ship?.destroy()
       pickup?.destroy(); pickup = null
+      ufo?.destroy(); ufo = null
+      pendingUfoTimers = []
       carrierAsteroid = null; carrierPickupType = null
       activePowerUp = null
       useGameStore.getState().resetGame()
@@ -83,7 +102,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     function tick(dt: number) {
       const { phase, level } = useGameStore.getState()
       const snap = input.snapshot()
-      const ae: AudioTickInput = { fired: false, explosions: [], shipHit: false, waveCleared: false, gameStarted: false, pickupCollected: false }
+      const ae: AudioTickInput = { fired: false, explosions: [], shipHit: false, waveCleared: false, gameStarted: false, pickupCollected: false, ufoAppeared: false, ufoShot: false }
 
       // Resume AudioContext on first user gesture (browser autoplay policy)
       const anyInput = snap.thrust || snap.fire || snap.left || snap.right || snap.pause || snap.confirm
@@ -156,6 +175,32 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
       if (pickup?.active) pickup.update(dt)
 
+      // UFO spawn scheduling
+      for (let i = pendingUfoTimers.length - 1; i >= 0; i--) {
+        pendingUfoTimers[i] -= dt
+        if (pendingUfoTimers[i] <= 0 && !ufo?.active) {
+          pendingUfoTimers.splice(i, 1)
+          const side: UfoSide = Math.random() < 0.5 ? 'left' : 'right'
+          ufo = new Ufo(stage, side)
+          ae.ufoAppeared = true
+        }
+      }
+
+      // UFO update and firing
+      if (ufo?.active && ship) {
+        const inaccuracy = 1 - ufoAccuracyForLevel(level)
+        const fireAngle  = ufo.update(ship.pos, inaccuracy, dt)
+        if (fireAngle !== null) {
+          const b = ufoBullets.acquire()
+          if (b) { b.init(ufo.pos, fireAngle) }
+          ae.ufoShot = true
+        }
+      } else if (ufo && !ufo.active) {
+        ufo = null
+      }
+
+      ufoBullets.forEach(b => b.update(dt))
+
       bullets.forEach(b => b.update(dt))
       asteroids.forEach(a => a.update(speedMult, dt))
 
@@ -183,6 +228,40 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       })
       asteroids = asteroids.filter(a => a.active)
       asteroids.push(...fragments)
+
+      // Bullet ↔ UFO
+      if (ufo?.active) {
+        bullets.forEach(bullet => {
+          if (!bullet.active || !ufo?.active) return
+          if (circlesOverlap(bullet.pos, bullet.radius, ufo.pos, ufo.radius)) {
+            bullet.deactivate()
+            useGameStore.getState().addScore(UFO_SCORE)
+            ae.explosions.push('medium')
+            ufo.destroy()
+            ufo = null
+          }
+        })
+      }
+
+      // UFO bullet ↔ Ship
+      if (ship && ship.invincible <= 0) {
+        ufoBullets.forEach(ufoBullet => {
+          if (!ufoBullet.active || !ship) return
+          if (circlesOverlap(ufoBullet.pos, ufoBullet.radius, ship.pos, 10)) {
+            ufoBullet.deactivate()
+            if (activePowerUp?.type === 'Shield') {
+              activePowerUp = null
+              ship.setPowerUp(null)
+              ship.invincible = INVINCIBILITY_FRAMES
+            } else {
+              ship.hit()
+              useGameStore.getState().loseLife()
+              screenShake(app.ticker, stage)
+            }
+            ae.shipHit = true
+          }
+        })
+      }
 
       // Ship ↔ Pickup
       if (ship && pickup?.active) {
@@ -225,6 +304,9 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       if (asteroids.length === 0) {
         ae.waveCleared = true
         pickup?.destroy(); pickup = null
+        ufo?.destroy(); ufo = null
+        pendingUfoTimers = []
+        ufoBullets.releaseAll(b => b.deactivate())
         carrierAsteroid = null; carrierPickupType = null
         useGameStore.getState().nextLevel()
         transitionStart = performance.now()
@@ -254,6 +336,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       ship?.destroy()
       asteroids.forEach(a => a.destroy())
       bullets.releaseAll()
+      ufo?.destroy()
+      ufoBullets.releaseAll()
       pickup?.destroy()
       input.destroy()
       audio.destroy()

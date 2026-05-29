@@ -11,3 +11,13 @@ export function speedForLevel(level: number): number {
 export function fireCooldownForLevel(level: number): number {
   return Math.max(FIRE_COOLDOWN - (level - 1) * 2, 8)
 }
+
+export function ufoFrequencyForLevel(level: number): number {
+  if (level <= 2) return 0
+  if (level <= 4) return 1
+  return 2
+}
+
+export function ufoAccuracyForLevel(level: number): number {
+  return Math.min(0.3 + (level - 3) * (0.85 - 0.3) / 4, 0.85)
+}

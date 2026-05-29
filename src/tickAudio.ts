@@ -8,6 +8,8 @@ export interface AudioTickInput {
   waveCleared:      boolean
   gameStarted:      boolean
   pickupCollected:  boolean
+  ufoAppeared:      boolean
+  ufoShot:          boolean
 }
 
 export function tickAudio(input: AudioTickInput, audio: AudioEngine): void {
@@ -17,4 +19,6 @@ export function tickAudio(input: AudioTickInput, audio: AudioEngine): void {
   if (input.waveCleared)      audio.playLevelUp()
   if (input.gameStarted)      audio.playMenuSelect()
   if (input.pickupCollected)  audio.playPickup()
+  if (input.ufoAppeared)      audio.playUfoAppear()
+  if (input.ufoShot)          audio.playUfoShoot()
 }

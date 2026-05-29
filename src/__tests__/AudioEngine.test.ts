@@ -253,7 +253,7 @@ function makeMockAudio(): AudioEngine {
   } as unknown as AudioEngine
 }
 
-const silent = { fired: false, explosions: [] as import('../types').AsteroidSize[], shipHit: false, waveCleared: false, gameStarted: false, pickupCollected: false }
+const silent = { fired: false, explosions: [] as import('../types').AsteroidSize[], shipHit: false, waveCleared: false, gameStarted: false, pickupCollected: false, ufoAppeared: false, ufoShot: false }
 
 describe('tickAudio', () => {
   it('plays shoot when a bullet is fired', () => {
