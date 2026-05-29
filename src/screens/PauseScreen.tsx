@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useGameStore } from '../store'
+import { useAudioStore } from '../audioStore'
 
 interface PauseScreenProps {
   onClose: () => void
@@ -20,15 +21,22 @@ const btnStyle: React.CSSProperties = {
 }
 
 export default function PauseScreen({ onClose }: PauseScreenProps) {
-  const phase     = useGameStore(s => s.phase)
-  const setPhase  = useGameStore(s => s.setPhase)
-  const resetGame = useGameStore(s => s.resetGame)
-  const show      = phase === 'paused'
+  const phase          = useGameStore(s => s.phase)
+  const setPhase       = useGameStore(s => s.setPhase)
+  const requestRestart = useGameStore(s => s.requestRestart)
+  const show           = phase === 'paused'
+
+  const sfxVolume      = useAudioStore(s => s.sfxVolume)
+  const musicVolume    = useAudioStore(s => s.musicVolume)
+  const isMuted        = useAudioStore(s => s.isMuted)
+  const setSfxVolume   = useAudioStore(s => s.setSfxVolume)
+  const setMusicVolume = useAudioStore(s => s.setMusicVolume)
+  const toggleMute     = useAudioStore(s => s.toggleMute)
 
   const [confirmMode, setConfirmMode] = useState<'restart' | 'quit' | null>(null)
 
   const confirmActions = {
-    restart: resetGame,
+    restart: requestRestart,
     quit:    onClose,
   }
 
@@ -70,6 +78,40 @@ export default function PauseScreen({ onClose }: PauseScreenProps) {
           <button style={btnStyle} onClick={() => setConfirmMode(null)}>Cancel</button>
         </div>
       )}
+
+      <hr style={{ width: 160, borderColor: 'var(--ab-muted)', margin: '20px 0 16px' }} />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 160 }}>
+        <div>
+          <label htmlFor="ab-sfx" style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ab-dim)' }}>
+            SFX {Math.round(sfxVolume * 100)}%
+          </label>
+          <input
+            id="ab-sfx"
+            type="range"
+            min={0} max={1} step={0.01}
+            value={sfxVolume}
+            onChange={e => setSfxVolume(Number(e.target.value))}
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div>
+          <label htmlFor="ab-music" style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ab-dim)' }}>
+            Music {Math.round(musicVolume * 100)}%
+          </label>
+          <input
+            id="ab-music"
+            type="range"
+            min={0} max={1} step={0.01}
+            value={musicVolume}
+            onChange={e => setMusicVolume(Number(e.target.value))}
+            style={{ width: '100%' }}
+          />
+        </div>
+        <button style={btnStyle} onClick={toggleMute}>
+          {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+      </div>
     </div>
   )
 }

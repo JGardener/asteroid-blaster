@@ -98,7 +98,15 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     }
 
     function tick(dt: number) {
-      const { phase, level } = useGameStore.getState()
+      const { phase, level, restartRequested } = useGameStore.getState()
+
+      if (restartRequested) {
+        useGameStore.getState().clearRestartRequest()
+        prevPhase = 'menu'  // makes music logic call startMusic() on next tick
+        startGame()
+        return
+      }
+
       const snap = input.snapshot()
       const ae: AudioTickInput = { fired: false, explosions: [], shipHit: false, waveCleared: false, gameStarted: false, pickupCollected: false, ufoAppeared: false, ufoShot: false }
 

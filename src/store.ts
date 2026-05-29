@@ -2,27 +2,31 @@ import { create } from 'zustand'
 import type { GamePhase } from './types'
 
 interface GameStore {
-  phase:   GamePhase
-  score:   number
-  lives:   number
-  level:   number
-  hiScore: number
+  phase:            GamePhase
+  score:            number
+  lives:            number
+  level:            number
+  hiScore:          number
+  restartRequested: boolean
 
-  setPhase:  (phase: GamePhase) => void
-  addScore:  (points: number) => void
-  loseLife:  () => void
-  nextLevel: () => void
-  resetGame: () => void
+  setPhase:           (phase: GamePhase) => void
+  addScore:           (points: number) => void
+  loseLife:           () => void
+  nextLevel:          () => void
+  resetGame:          () => void
+  requestRestart:     () => void
+  clearRestartRequest:() => void
 }
 
 const HI_KEY = 'ab-hiscore'
 
 export const useGameStore = create<GameStore>((set, get) => ({
-  phase:   'menu',
-  score:   0,
-  lives:   3,
-  level:   1,
-  hiScore: Number(localStorage.getItem(HI_KEY) ?? 0),
+  phase:            'menu',
+  score:            0,
+  lives:            3,
+  level:            1,
+  hiScore:          Number(localStorage.getItem(HI_KEY) ?? 0),
+  restartRequested: false,
 
   setPhase: (phase) => set({ phase }),
 
@@ -43,5 +47,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   nextLevel: () => set((s) => ({ level: s.level + 1 })),
 
-  resetGame: () => set({ phase: 'playing', score: 0, lives: 3, level: 1 }),
+  resetGame:           () => set({ phase: 'playing', score: 0, lives: 3, level: 1 }),
+  requestRestart:      () => set({ phase: 'playing', score: 0, lives: 3, level: 1, restartRequested: true }),
+  clearRestartRequest: () => set({ restartRequested: false }),
 }))
