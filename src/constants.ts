@@ -31,6 +31,7 @@ export const SPEED_MULTIPLIER_CAP   = 2.0
 export const STARTING_LIVES         = 3
 export const INVINCIBILITY_FRAMES   = 120
 export const TRANSITION_DURATION_MS = 1500
+export const PICKUP_DURATION        = 600
 
 export const COLOR_ACCENT = 0x4f8cff
 export const COLOR_DIM    = 0xa0a0b0

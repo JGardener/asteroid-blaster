@@ -1,6 +1,7 @@
 import { Graphics, Container } from 'pixi.js'
 import type { Vec2 } from '../types'
 import type { InputSnapshot } from '../input'
+import type { PickupType } from '../powerup'
 import {
   SHIP_THRUST, SHIP_ROTATION_SPEED, SHIP_MAX_SPEED,
   SHIP_DRAG, SHIP_RADIUS, CANVAS_W, CANVAS_H,
@@ -64,6 +65,24 @@ export class Ship {
     this.invincible = INVINCIBILITY_FRAMES
     this.vel        = { x: 0, y: 0 }
     this.pos        = { x: CANVAS_W / 2, y: CANVAS_H / 2 }
+  }
+
+  setPowerUp(powerUp: PickupType | null): void {
+    this.gfx.clear()
+    const wide = powerUp === 'SpreadShot'
+    const xw   = wide ? SHIP_RADIUS * 1.0 : SHIP_RADIUS * 0.7
+    const yw   = wide ? SHIP_RADIUS * 0.7 : SHIP_RADIUS * 0.8
+    this.gfx
+      .moveTo(0,   -SHIP_RADIUS)
+      .lineTo( xw,  yw)
+      .lineTo( 0,   SHIP_RADIUS * 0.4)
+      .lineTo(-xw,  yw)
+      .closePath()
+      .stroke({ color: COLOR_ACCENT, width: 1.5 })
+    if (powerUp === 'Shield') {
+      this.gfx.arc(0, 0, SHIP_RADIUS + 8, 0, Math.PI * 2)
+      this.gfx.stroke({ color: COLOR_ACCENT, width: 1.5 })
+    }
   }
 
   destroy(): void { this.gfx.destroy() }
