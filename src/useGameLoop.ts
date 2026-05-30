@@ -8,7 +8,8 @@ import { Ship } from './entities/Ship'
 import { Asteroid } from './entities/Asteroid'
 import { Bullet } from './entities/Bullet'
 import { detectCollisions, type CollisionPair, type CollisionSnapshot } from './collision'
-import { asteroidsForLevel, speedForLevel, fireCooldownForLevel, ufoFrequencyForLevel, ufoAccuracyForLevel } from './progression'
+import { tickGameState, type GameLoopState } from './tickGameState'
+import { asteroidsForLevel, fireCooldownForLevel, ufoFrequencyForLevel } from './progression'
 import { BULLET_POOL_SIZE, ASTEROID_SCORE, COLOR_ACCENT, TRANSITION_DURATION_MS, INVINCIBILITY_FRAMES, PICKUP_DURATION, UFO_SCORE } from './constants'
 import { Pickup } from './entities/Pickup'
 import { type PickupType, spreadShotAngles, effectiveCooldown, tickPowerUp } from './powerup'
@@ -95,6 +96,110 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       useGameStore.getState().resetGame()
       ship = new Ship(stage)
       spawnWave(1)
+    }
+
+    function buildGameLoopState(): GameLoopState {
+      const { level, phase, lives, score } = useGameStore.getState()
+      return {
+        ship: ship ? {
+          pos:        { ...ship.pos },
+          vel:        { ...ship.vel },
+          rotation:   ship.rotation,
+          invincible: ship.invincible,
+          thrustOn:   ship.thrustOn,
+          powerUp:    activePowerUp?.type ?? null,
+        } : null,
+        asteroids: asteroids.map(a => ({
+          pos: { ...a.pos }, vel: { ...a.vel },
+          size: a.size, radius: a.radius,
+          rotation: a.rotation, rotationSpeed: a.rotationSpeed,
+        })),
+        bullets: bullets.getAll().map(b => ({
+          pos: { ...b.pos }, vel: { ...b.vel },
+          lifetime: b.lifetime, active: b.active, radius: b.radius,
+        })),
+        ufoBullets: ufoBullets.getAll().map(b => ({
+          pos: { ...b.pos }, vel: { ...b.vel }, active: b.active, radius: b.radius,
+        })),
+        ufo: ufo?.active ? {
+          pos: { ...ufo.pos }, vel: { ...ufo.vel },
+          fireTimer: ufo.fireTimer, active: true, radius: ufo.radius,
+        } : null,
+        pickup: pickup?.active ? {
+          pos: { ...pickup.pos }, vel: { ...pickup.vel },
+          type: pickup.type, active: true, radius: pickup.radius,
+        } : null,
+        activePowerUp: activePowerUp ? { ...activePowerUp } : null,
+        pendingUfoTimers: [...pendingUfoTimers],
+        fireCooldown,
+        carrierAsteroidIdx: carrierAsteroid ? asteroids.indexOf(carrierAsteroid) : null,
+        carrierPickupType,
+        level, phase, lives, score,
+      }
+    }
+
+    function syncEntitiesToState(ns: GameLoopState): void {
+      if (ship && ns.ship) {
+        ship.pos.x      = ns.ship.pos.x
+        ship.pos.y      = ns.ship.pos.y
+        ship.vel.x      = ns.ship.vel.x
+        ship.vel.y      = ns.ship.vel.y
+        ship.rotation   = ns.ship.rotation
+        ship.invincible = ns.ship.invincible
+        ship.thrustOn   = ns.ship.thrustOn
+        ship.gfx.x      = ns.ship.pos.x
+        ship.gfx.y      = ns.ship.pos.y
+        ship.gfx.rotation = ns.ship.rotation + Math.PI / 2
+        ship.gfx.alpha  = (ship.invincible > 0 && ship.invincible % 6 < 3) ? 0.3 : 1
+      }
+
+      asteroids.forEach((a, i) => {
+        const s = ns.asteroids[i]
+        if (!s) return
+        a.pos.x    = s.pos.x
+        a.pos.y    = s.pos.y
+        a.rotation = s.rotation
+        a.gfx.x    = s.pos.x
+        a.gfx.y    = s.pos.y
+        a.gfx.rotation = s.rotation
+      })
+
+      bullets.getAll().forEach((b, i) => {
+        const s = ns.bullets[i]
+        if (!s) return
+        b.pos.x    = s.pos.x
+        b.pos.y    = s.pos.y
+        b.lifetime = s.lifetime
+        b.active   = s.active
+        b.gfx.x    = s.pos.x
+        b.gfx.y    = s.pos.y
+        b.gfx.visible = s.active
+      })
+
+      ufoBullets.getAll().forEach((b, i) => {
+        const s = ns.ufoBullets[i]
+        if (!s) return
+        b.pos.x  = s.pos.x
+        b.pos.y  = s.pos.y
+        b.vel.x  = s.vel.x
+        b.vel.y  = s.vel.y
+        b.active = s.active
+        b.gfx.x  = s.pos.x
+        b.gfx.y  = s.pos.y
+        b.gfx.visible = s.active
+      })
+
+      if (ns.ufo && ufo) {
+        ufo.pos.x     = ns.ufo.pos.x
+        ufo.pos.y     = ns.ufo.pos.y
+        ufo.fireTimer = ns.ufo.fireTimer
+        ufo.gfx.x     = ns.ufo.pos.x
+        ufo.gfx.y     = ns.ufo.pos.y
+      } else if (!ns.ufo && ufo) {
+        ufo.active      = false
+        ufo.gfx.visible = false
+        ufo = null
+      }
     }
 
     function respondToCollisions(
@@ -234,10 +339,13 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       if (phase === 'paused') return
 
       // ── playing ──────────────────────────────────────────────
-      const speedMult       = speedForLevel(level) * dt
-      const fireCooldownNow = fireCooldownForLevel(level)
+      const { newState: tickedState, events: tickEvents } = tickGameState(buildGameLoopState(), snap, dt)
+      syncEntitiesToState(tickedState)
+      for (const ev of tickEvents) {
+        if (ev.type === 'audio' && ev.cue === 'ufoShot') ae.ufoShot = true
+      }
 
-      if (ship) ship.update(snap, dt)
+      const fireCooldownNow = fireCooldownForLevel(level)
 
       if (ship) {
         thruster.update(ship.pos.x, ship.pos.y, ship.rotation, ship.thrustOn, activePowerUp?.type === 'RapidFire')
@@ -272,24 +380,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
           ae.ufoAppeared = true
         }
       }
-
-      // UFO update and firing
-      if (ufo?.active && ship) {
-        const inaccuracy = 1 - ufoAccuracyForLevel(level)
-        const fireAngle  = ufo.update(ship.pos, inaccuracy, dt)
-        if (fireAngle !== null) {
-          const b = ufoBullets.acquire()
-          if (b) { b.init(ufo.pos, fireAngle) }
-          ae.ufoShot = true
-        }
-      } else if (ufo && !ufo.active) {
-        ufo = null
-      }
-
-      ufoBullets.forEach(b => b.update(dt))
-
-      bullets.forEach(b => b.update(dt))
-      asteroids.forEach(a => a.update(speedMult, dt))
 
       // Collision detection → response
       const activeBullets: Bullet[]    = []

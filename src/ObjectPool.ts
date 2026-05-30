@@ -24,6 +24,8 @@ export class ObjectPool<T extends { active: boolean }> {
     obj.active = false
   }
 
+  getAll(): T[] { return this.pool }
+
   forEach(cb: (obj: T) => void): void {
     for (const obj of this.pool) {
       if (obj.active) cb(obj)

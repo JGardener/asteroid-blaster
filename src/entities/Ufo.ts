@@ -12,7 +12,7 @@ export class Ufo {
   pos:       Vec2
   vel:       Vec2
   radius:    number  = UFO_RADIUS
-  private fireTimer: number = UFO_FIRE_RATE
+  fireTimer: number = UFO_FIRE_RATE
   readonly gfx: Graphics
 
   constructor(stage: Container, side: UfoSide) {
