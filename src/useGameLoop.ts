@@ -5,7 +5,8 @@ import { useGameStore } from './store'
 import { InputState } from './input'
 import { ObjectPool } from './ObjectPool'
 import { Ship } from './entities/Ship'
-import { Asteroid } from './entities/Asteroid'
+import { AsteroidData } from './entities/AsteroidData'
+import { AsteroidRenderer } from './entities/AsteroidRenderer'
 import { BulletData } from './entities/BulletData'
 import { BulletRenderer } from './entities/BulletRenderer'
 import { UfoBulletData } from './entities/UfoBulletData'
@@ -13,7 +14,8 @@ import { UfoBulletRenderer } from './entities/UfoBulletRenderer'
 import { tickGameState, type GameLoopState, type GameEvent } from './tickGameState'
 import { asteroidsForLevel } from './progression'
 import { BULLET_POOL_SIZE, COLOR_ACCENT } from './constants'
-import { Pickup } from './entities/Pickup'
+import { PickupData } from './entities/PickupData'
+import { PickupRenderer } from './entities/PickupRenderer'
 import { type PickupType } from './powerup'
 import { Ufo, type UfoSide } from './entities/Ufo'
 import { ParticleSystem } from './effects/ParticleSystem'
@@ -53,7 +55,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     const ufoBulletRenderers = Array.from({ length: 8 }, () => new UfoBulletRenderer(stage))
 
     let ship:               Ship | null = null
-    let asteroids:          Asteroid[]  = []
+    let asteroids:          AsteroidData[]  = []
+    let asteroidRenderers:  AsteroidRenderer[] = []
     let fireCooldown        = 0
     let pauseWasDown        = false
     let confirmWasDown      = false
@@ -61,19 +64,21 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     let prevLevel           = useGameStore.getState().level
     let carrierAsteroidIdx: number | null    = null
     let carrierPickupType:  PickupType | null = null
-    let pickup:             Pickup | null    = null
+    let pickup:             PickupData | null    = null
+    let pickupRenderer:     PickupRenderer | null = null
     let activePowerUp:      { type: PickupType; remaining: number } | null = null
     let ufo:                Ufo | null       = null
     let pendingUfoTimers:   number[]         = []
     let transitionTimer     = 0
 
     function startGame() {
-      asteroids.forEach(a => a.destroy())
+      asteroidRenderers.forEach(r => r.destroy())
       asteroids = []
+      asteroidRenderers = []
       bulletPool.releaseAll()
       ufoBulletPool.releaseAll()
       ship?.destroy()
-      pickup?.destroy(); pickup = null
+      pickupRenderer?.destroy(); pickupRenderer = null; pickup = null
       ufo?.destroy(); ufo = null
       pendingUfoTimers   = []
       carrierAsteroidIdx = null; carrierPickupType = null
@@ -82,7 +87,15 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       useGameStore.getState().resetGame()
       ship = new Ship(stage)
       for (let i = 0; i < asteroidsForLevel(1); i++) {
-        asteroids.push(new Asteroid(stage, 'large'))
+        const speed = Math.random() * 0.8 + 0.4
+        const angle = Math.random() * Math.PI * 2
+        const data = new AsteroidData(
+          'large',
+          { x: Math.random() < 0.5 ? -48 : 960 + 48, y: Math.random() * 640 },
+          { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+        )
+        asteroids.push(data)
+        asteroidRenderers.push(new AsteroidRenderer(stage, data))
       }
       carrierAsteroidIdx = Math.floor(Math.random() * asteroids.length)
       carrierPickupType  = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)]
@@ -148,12 +161,9 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       asteroids.forEach((a, i) => {
         const s = ns.asteroids[i]
         if (!s) return
-        a.pos.x        = s.pos.x
-        a.pos.y        = s.pos.y
-        a.rotation     = s.rotation
-        a.gfx.x        = s.pos.x
-        a.gfx.y        = s.pos.y
-        a.gfx.rotation = s.rotation
+        a.pos.x    = s.pos.x
+        a.pos.y    = s.pos.y
+        a.rotation = s.rotation
       })
 
       bulletPool.getAll().forEach((b, i) => {
@@ -187,8 +197,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     }
 
     function renderPIXI(): void {
+      asteroids.forEach((a, i) => asteroidRenderers[i]?.sync(a))
       bulletPool.getAll().forEach((b, i) => bulletRenderers[i].sync(b))
       ufoBulletPool.getAll().forEach((b, i) => ufoBulletRenderers[i].sync(b))
+      if (pickup && pickupRenderer) pickupRenderer.sync(pickup)
     }
 
     function applyEventsToPIXI(ns: GameLoopState, events: GameEvent[]): void {
@@ -199,23 +211,27 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         }
         if (ev.type === 'screenShake') screenShake(app.ticker, stage)
         if (ev.type === 'spawnPickup') {
-          pickup?.destroy()
-          pickup = new Pickup(stage, { ...ev.pos }, ev.pickupType)
+          pickupRenderer?.destroy()
+          pickup         = new PickupData({ ...ev.pos }, ev.pickupType)
+          pickupRenderer = new PickupRenderer(stage, pickup)
         }
       }
 
-      // Asteroid reconciliation: destroy PIXI entities for hit asteroids, create for fragments/new wave
+      // Asteroid reconciliation: destroy renderers for hit asteroids, create for fragments/new wave
       const destroyedIdxs = events
         .filter((e): e is { type: 'asteroidDestroyed'; idx: number } => e.type === 'asteroidDestroyed')
         .map(e => e.idx)
         .sort((a, b) => b - a)  // descending so splice doesn't shift lower indices
       for (const idx of destroyedIdxs) {
-        asteroids[idx]?.destroy()
+        asteroidRenderers[idx]?.destroy()
         asteroids.splice(idx, 1)
+        asteroidRenderers.splice(idx, 1)
       }
       while (asteroids.length < ns.asteroids.length) {
-        const s = ns.asteroids[asteroids.length]
-        asteroids.push(new Asteroid(stage, s.size, { ...s.pos }, { ...s.vel }))
+        const s    = ns.asteroids[asteroids.length]
+        const data = new AsteroidData(s.size, { ...s.pos }, { ...s.vel }, s.rotationSpeed)
+        asteroids.push(data)
+        asteroidRenderers.push(new AsteroidRenderer(stage, data))
       }
 
       // UFO entity lifecycle
@@ -236,8 +252,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
       // Pickup disappear (grabbed by ship or cleared on wave end — but not when a new one was just spawned)
       if (!ns.pickup && pickup && !events.some(e => e.type === 'spawnPickup')) {
-        pickup.destroy()
-        pickup = null
+        pickup.active = false
+        pickupRenderer?.destroy()
+        pickupRenderer = null
+        pickup         = null
       }
 
       // activePowerUp → ship visual sync
@@ -365,13 +383,13 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     return () => {
       app.ticker?.remove(wrappedTick)
       ship?.destroy()
-      asteroids.forEach(a => a.destroy())
+      asteroidRenderers.forEach(r => r.destroy())
       bulletPool.releaseAll()
       bulletRenderers.forEach(r => r.destroy())
       ufo?.destroy()
       ufoBulletPool.releaseAll()
       ufoBulletRenderers.forEach(r => r.destroy())
-      pickup?.destroy()
+      pickupRenderer?.destroy()
       input.destroy()
       audio.destroy()
       unsubAudio()
