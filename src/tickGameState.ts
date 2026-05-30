@@ -17,12 +17,14 @@ import { spreadShotAngles, effectiveCooldown } from './powerup'
 const TRANSITION_FRAMES = 90  // TRANSITION_DURATION_MS (1500ms) at 60fps
 
 export interface ShipState {
-  pos:        Vec2
-  vel:        Vec2
-  rotation:   number
-  invincible: number
-  thrustOn:   boolean
-  powerUp:    PickupType | null
+  pos:              Vec2
+  vel:              Vec2
+  rotation:         number
+  invincible:       number
+  thrustOn:         boolean
+  powerUp:          PickupType | null
+  powerUpRemaining: number
+  fireCooldown:     number
 }
 
 export interface AsteroidState {
@@ -72,9 +74,7 @@ export interface GameLoopState {
   ufoBullets:        UfoBulletState[]
   ufo:               UfoState | null
   pickup:            PickupState | null
-  activePowerUp:     { type: PickupType; remaining: number } | null
   pendingUfoTimers:  number[]
-  fireCooldown:      number
   carrierAsteroidIdx: number | null
   carrierPickupType: PickupType | null
   level:             number
@@ -132,7 +132,7 @@ function tickShip(ship: ShipState, input: InputSnapshot, dt: number): ShipState 
 
   if (invincible > 0) invincible -= dt
 
-  return { pos, vel, rotation, invincible, thrustOn, powerUp }
+  return { pos, vel, rotation, invincible, thrustOn, powerUp, powerUpRemaining: ship.powerUpRemaining, fireCooldown: ship.fireCooldown }
 }
 
 function tickAsteroid(ast: AsteroidState, speedMult: number, dt: number): AsteroidState {
@@ -204,7 +204,6 @@ interface CollisionResult {
   ufoBullets:        UfoBulletState[]
   ufo:               UfoState | null
   pickup:            PickupState | null
-  activePowerUp:     { type: PickupType; remaining: number } | null
   carrierAsteroidIdx: number | null
   carrierPickupType: PickupType | null
   events:            GameEvent[]
@@ -220,7 +219,6 @@ function respondToCollisionsInState(
   activeUfoBulletMap:Array<{ idx: number }>,
   ufo:               UfoState | null,
   pickup:            PickupState | null,
-  activePowerUp:     { type: PickupType; remaining: number } | null,
   carrierAsteroidIdx:number | null,
   carrierPickupType: PickupType | null,
 ): CollisionResult {
@@ -273,9 +271,8 @@ function respondToCollisionsInState(
       case 'ufoBulletHitsShip': {
         const ubFullIdx = activeUfoBulletMap[pair.bulletId].idx
         deadUfoBulletIdxs.add(ubFullIdx)
-        if (activePowerUp?.type === 'Shield') {
-          activePowerUp = null
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null } : null
+        if (ship?.powerUp === 'Shield') {
+          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null, powerUpRemaining: 0 } : null
         } else {
           events.push({ type: 'loseLife' })
           events.push({ type: 'screenShake' })
@@ -285,9 +282,8 @@ function respondToCollisionsInState(
         break
       }
       case 'asteroidHitsShip': {
-        if (activePowerUp?.type === 'Shield') {
-          activePowerUp = null
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null } : null
+        if (ship?.powerUp === 'Shield') {
+          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null, powerUpRemaining: 0 } : null
         } else {
           events.push({ type: 'loseLife' })
           events.push({ type: 'screenShake' })
@@ -297,8 +293,8 @@ function respondToCollisionsInState(
         break
       }
       case 'shipGrabsPickup': {
-        if (pickup) {
-          activePowerUp = { type: pickup.type, remaining: pickup.type === 'Shield' ? Infinity : PICKUP_DURATION }
+        if (pickup && ship) {
+          ship = { ...ship, powerUp: pickup.type, powerUpRemaining: pickup.type === 'Shield' ? Infinity : PICKUP_DURATION }
           pickupGrabbed = true
           events.push({ type: 'audio', cue: 'pickupCollected' })
         }
@@ -331,7 +327,6 @@ function respondToCollisionsInState(
     ufoBullets:        nextUfoBullets,
     ufo:               ufoKilled ? null : ufo,
     pickup:            pickupGrabbed ? null : pickup,
-    activePowerUp,
     carrierAsteroidIdx,
     carrierPickupType,
     events,
@@ -363,7 +358,7 @@ export function tickGameState(
   }
 
   // ── collision detection + response ───────────────────────────────────────────
-  let { pickup, activePowerUp, carrierAsteroidIdx, carrierPickupType } = state
+  let { pickup, carrierAsteroidIdx, carrierPickupType } = state
   const preCollisionCount = asteroids.length
 
   if (state.phase === 'playing') {
@@ -385,26 +380,27 @@ export function tickGameState(
     if (pairs.length > 0) {
       const cr = respondToCollisionsInState(
         pairs, ship, asteroids, bullets, activeBulletMap,
-        ufoBullets, activeUfoBulletMap, ufo, pickup, activePowerUp,
+        ufoBullets, activeUfoBulletMap, ufo, pickup,
         carrierAsteroidIdx, carrierPickupType,
       )
-      ship              = cr.ship
-      asteroids         = cr.asteroids
-      bullets           = cr.bullets
-      ufoBullets        = cr.ufoBullets
-      ufo               = cr.ufo
-      pickup            = cr.pickup
-      activePowerUp     = cr.activePowerUp
+      ship               = cr.ship
+      asteroids          = cr.asteroids
+      bullets            = cr.bullets
+      ufoBullets         = cr.ufoBullets
+      ufo                = cr.ufo
+      pickup             = cr.pickup
       carrierAsteroidIdx = cr.carrierAsteroidIdx
-      carrierPickupType = cr.carrierPickupType
+      carrierPickupType  = cr.carrierPickupType
       events.push(...cr.events)
     }
   }
 
   // ── power-up timer ───────────────────────────────────────────────────────────
-  if (activePowerUp && activePowerUp.remaining !== Infinity) {
-    const next = activePowerUp.remaining - dt
-    activePowerUp = next <= 0 ? null : { ...activePowerUp, remaining: next }
+  if (ship && ship.powerUp && ship.powerUpRemaining !== Infinity) {
+    const next = ship.powerUpRemaining - dt
+    ship = next <= 0
+      ? { ...ship, powerUp: null, powerUpRemaining: 0 }
+      : { ...ship, powerUpRemaining: next }
   }
 
   // ── UFO scheduling ───────────────────────────────────────────────────────────
@@ -480,16 +476,17 @@ export function tickGameState(
   }
 
   // ── bullet firing ─────────────────────────────────────────────────────────────
-  let fireCooldown = Math.max(0, state.fireCooldown - dt)
-  if (ship && phase === 'playing' && input.fire && state.fireCooldown <= 0) {
-    const powerUpType = activePowerUp?.type ?? null
-    const angles      = powerUpType === 'SpreadShot' ? spreadShotAngles(ship.rotation) : [ship.rotation]
+  let fireCooldown = ship ? Math.max(0, ship.fireCooldown - dt) : 0
+  if (ship && phase === 'playing' && input.fire && ship.fireCooldown <= 0) {
+    const firingShip  = ship
+    const powerUpType = firingShip.powerUp
+    const angles      = powerUpType === 'SpreadShot' ? spreadShotAngles(firingShip.rotation) : [firingShip.rotation]
     let didFire = false
     for (const angle of angles) {
       const slotIdx = bullets.findIndex(b => !b.active)
       if (slotIdx >= 0) {
         bullets = bullets.map((b, i) => i !== slotIdx ? b : {
-          pos:      { ...ship.pos },
+          pos:      { ...firingShip.pos },
           vel:      { x: Math.cos(angle) * BULLET_SPEED, y: Math.sin(angle) * BULLET_SPEED },
           lifetime: BULLET_LIFETIME,
           active:   true,
@@ -503,13 +500,14 @@ export function tickGameState(
       events.push({ type: 'audio', cue: 'shot' })
     }
   }
+  if (ship) ship = { ...ship, fireCooldown }
 
   return {
     newState: {
       ...state,
       ship, asteroids, bullets, ufoBullets, ufo,
-      pickup, activePowerUp, carrierAsteroidIdx, carrierPickupType,
-      level, phase, transitionTimer, pendingUfoTimers, fireCooldown,
+      pickup, carrierAsteroidIdx, carrierPickupType,
+      level, phase, transitionTimer, pendingUfoTimers,
     },
     events,
   }
@@ -523,9 +521,7 @@ export function makeInitialGameLoopState(): GameLoopState {
     ufoBullets: [],
     ufo: null,
     pickup: null,
-    activePowerUp: null,
     pendingUfoTimers: [],
-    fireCooldown: 0,
     carrierAsteroidIdx: null,
     carrierPickupType: null,
     level: 1,

@@ -4,7 +4,8 @@ import { Application, Ticker } from 'pixi.js'
 import { useGameStore } from './store'
 import { InputState } from './input'
 import { ObjectPool } from './ObjectPool'
-import { Ship } from './entities/Ship'
+import { ShipData } from './entities/ShipData'
+import { ShipRenderer } from './entities/ShipRenderer'
 import { AsteroidData } from './entities/AsteroidData'
 import { AsteroidRenderer } from './entities/AsteroidRenderer'
 import { BulletData } from './entities/BulletData'
@@ -19,7 +20,6 @@ import { PickupRenderer } from './entities/PickupRenderer'
 import { type PickupType } from './powerup'
 import { Ufo, type UfoSide } from './entities/Ufo'
 import { ParticleSystem } from './effects/ParticleSystem'
-import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
 import { screenShake }    from './effects/screenShake'
 import { AudioEngine }    from './AudioEngine'
@@ -38,7 +38,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     const bulletPool      = new ObjectPool(() => new BulletData(), BULLET_POOL_SIZE)
     const bulletRenderers = Array.from({ length: BULLET_POOL_SIZE }, () => new BulletRenderer(stage))
     const particles = new ParticleSystem(stage)
-    const thruster  = new Thruster(stage)
     createStarField(stage)
 
     const { sfxVolume, musicVolume, isMuted } = useAudioStore.getState()
@@ -54,10 +53,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     const ufoBulletPool      = new ObjectPool(() => new UfoBulletData(), 8)
     const ufoBulletRenderers = Array.from({ length: 8 }, () => new UfoBulletRenderer(stage))
 
-    let ship:               Ship | null = null
+    let shipData:           ShipData | null     = null
+    let shipRenderer:       ShipRenderer | null = null
     let asteroids:          AsteroidData[]  = []
     let asteroidRenderers:  AsteroidRenderer[] = []
-    let fireCooldown        = 0
     let pauseWasDown        = false
     let confirmWasDown      = false
     let prevPhase           = useGameStore.getState().phase
@@ -66,7 +65,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     let carrierPickupType:  PickupType | null = null
     let pickup:             PickupData | null    = null
     let pickupRenderer:     PickupRenderer | null = null
-    let activePowerUp:      { type: PickupType; remaining: number } | null = null
     let ufo:                Ufo | null       = null
     let pendingUfoTimers:   number[]         = []
     let transitionTimer     = 0
@@ -77,15 +75,15 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       asteroidRenderers = []
       bulletPool.releaseAll()
       ufoBulletPool.releaseAll()
-      ship?.destroy()
+      shipRenderer?.destroy(); shipRenderer = null; shipData = null
       pickupRenderer?.destroy(); pickupRenderer = null; pickup = null
       ufo?.destroy(); ufo = null
       pendingUfoTimers   = []
       carrierAsteroidIdx = null; carrierPickupType = null
-      activePowerUp      = null
       transitionTimer    = 0
       useGameStore.getState().resetGame()
-      ship = new Ship(stage)
+      shipData     = new ShipData()
+      shipRenderer = new ShipRenderer(stage)
       for (let i = 0; i < asteroidsForLevel(1); i++) {
         const speed = Math.random() * 0.8 + 0.4
         const angle = Math.random() * Math.PI * 2
@@ -105,13 +103,15 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     function buildGameLoopState(): GameLoopState {
       const { level, phase, lives, score } = useGameStore.getState()
       return {
-        ship: ship ? {
-          pos:        { ...ship.pos },
-          vel:        { ...ship.vel },
-          rotation:   ship.rotation,
-          invincible: ship.invincible,
-          thrustOn:   ship.thrustOn,
-          powerUp:    activePowerUp?.type ?? null,
+        ship: shipData ? {
+          pos:              { ...shipData.pos },
+          vel:              { ...shipData.vel },
+          rotation:         shipData.rotation,
+          invincible:       shipData.invincible,
+          thrustOn:         shipData.thrustOn,
+          powerUp:          shipData.powerUp,
+          powerUpRemaining: shipData.powerUpRemaining,
+          fireCooldown:     shipData.fireCooldown,
         } : null,
         asteroids: asteroids.map(a => ({
           pos: { ...a.pos }, vel: { ...a.vel },
@@ -133,9 +133,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
           pos: { ...pickup.pos }, vel: { ...pickup.vel },
           type: pickup.type, active: true, radius: pickup.radius,
         } : null,
-        activePowerUp:    activePowerUp ? { ...activePowerUp } : null,
         pendingUfoTimers: [...pendingUfoTimers],
-        fireCooldown,
         carrierAsteroidIdx,
         carrierPickupType,
         level, phase, lives, score,
@@ -144,18 +142,18 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     }
 
     function syncEntitiesToState(ns: GameLoopState): void {
-      if (ship && ns.ship) {
-        ship.pos.x        = ns.ship.pos.x
-        ship.pos.y        = ns.ship.pos.y
-        ship.vel.x        = ns.ship.vel.x
-        ship.vel.y        = ns.ship.vel.y
-        ship.rotation     = ns.ship.rotation
-        ship.invincible   = ns.ship.invincible
-        ship.thrustOn     = ns.ship.thrustOn
-        ship.gfx.x        = ns.ship.pos.x
-        ship.gfx.y        = ns.ship.pos.y
-        ship.gfx.rotation = ns.ship.rotation + Math.PI / 2
-        ship.gfx.alpha    = (ship.invincible > 0 && ship.invincible % 6 < 3) ? 0.3 : 1
+      if (shipData && ns.ship) {
+        shipData.pos.x           = ns.ship.pos.x
+        shipData.pos.y           = ns.ship.pos.y
+        shipData.vel.x           = ns.ship.vel.x
+        shipData.vel.y           = ns.ship.vel.y
+        shipData.rotation        = ns.ship.rotation
+        shipData.invincible      = ns.ship.invincible
+        shipData.thrustOn        = ns.ship.thrustOn
+        shipData.powerUp         = ns.ship.powerUp
+        shipData.powerUpRemaining = ns.ship.powerUpRemaining
+        shipData.fireCooldown    = ns.ship.fireCooldown
+        shipRenderer?.sync(shipData)
       }
 
       asteroids.forEach((a, i) => {
@@ -258,11 +256,6 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         pickup         = null
       }
 
-      // activePowerUp → ship visual sync
-      if (ns.activePowerUp?.type !== activePowerUp?.type) {
-        ship?.setPowerUp(ns.activePowerUp?.type ?? null)
-      }
-      activePowerUp = ns.activePowerUp
     }
 
     function syncStore(ns: GameLoopState, events: GameEvent[]): void {
@@ -353,12 +346,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       pendingUfoTimers   = newState.pendingUfoTimers
       carrierAsteroidIdx = newState.carrierAsteroidIdx
       carrierPickupType  = newState.carrierPickupType
-      fireCooldown       = newState.fireCooldown
 
-      // PIXI-only: thruster + particles
-      if (ship) {
-        thruster.update(ship.pos.x, ship.pos.y, ship.rotation, ship.thrustOn, activePowerUp?.type === 'RapidFire')
-      }
       particles.update(dt)
 
       if (pickup?.active) pickup.update(dt)
@@ -382,7 +370,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
     return () => {
       app.ticker?.remove(wrappedTick)
-      ship?.destroy()
+      shipRenderer?.destroy()
       asteroidRenderers.forEach(r => r.destroy())
       bulletPool.releaseAll()
       bulletRenderers.forEach(r => r.destroy())

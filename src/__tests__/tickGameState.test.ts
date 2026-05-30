@@ -14,6 +14,7 @@ const noInput: InputSnapshot = {
 const baseShip = (): GameLoopState['ship'] => ({
   pos: { x: 480, y: 320 }, vel: { x: 0, y: 0 },
   rotation: 0, invincible: 0, thrustOn: false, powerUp: null,
+  powerUpRemaining: 0, fireCooldown: 0,
 })
 
 const baseBullet = (overrides: Partial<NonNullable<GameLoopState['bullets'][number]>> = {}): GameLoopState['bullets'][number] => ({
@@ -35,9 +36,7 @@ const emptyState = (): GameLoopState => ({
   ufoBullets: [],
   ufo: null,
   pickup: null,
-  activePowerUp: null,
   pendingUfoTimers: [],
-  fireCooldown: 0,
   carrierAsteroidIdx: null,
   carrierPickupType: null,
   level: 1,
@@ -271,13 +270,12 @@ describe('tickGameState — collision response', () => {
   it('asteroid hitting ship with Shield absorbs hit — no loseLife, Shield cleared', () => {
     const state = {
       ...emptyState(),
-      ship:         { ...baseShip()!, pos: { x: 100, y: 100 }, invincible: 0 },
-      asteroids:    [baseAsteroid()],
-      activePowerUp: { type: 'Shield' as const, remaining: Infinity },
+      ship:      { ...baseShip()!, pos: { x: 100, y: 100 }, invincible: 0, powerUp: 'Shield' as const, powerUpRemaining: Infinity },
+      asteroids: [baseAsteroid()],
     }
     const { newState, events } = tickGameState(state, noInput, 0)
     expect(events.some(e => e.type === 'loseLife')).toBe(false)
-    expect(newState.activePowerUp).toBeNull()
+    expect(newState.ship!.powerUp).toBeNull()
   })
 })
 
@@ -299,13 +297,13 @@ describe('tickGameState — wave clear', () => {
 // ── #19 power-up timer ────────────────────────────────────────────────────────
 
 describe('tickGameState — power-up timer', () => {
-  it('SpreadShot timer expiring clears activePowerUp in newState', () => {
+  it('SpreadShot timer expiring clears powerUp on ship in newState', () => {
     const state = {
       ...emptyState(),
-      activePowerUp: { type: 'SpreadShot' as const, remaining: 0.5 },
+      ship: { ...baseShip()!, powerUp: 'SpreadShot' as const, powerUpRemaining: 0.5 },
     }
     const { newState } = tickGameState(state, noInput, 1)
-    expect(newState.activePowerUp).toBeNull()
+    expect(newState.ship!.powerUp).toBeNull()
   })
 })
 
@@ -314,7 +312,7 @@ describe('tickGameState — power-up timer', () => {
 describe('makeInitialGameLoopState', () => {
   it('produces clean state with no residual powerUp, ufo, or pickup', () => {
     const state = makeInitialGameLoopState()
-    expect(state.activePowerUp).toBeNull()
+    expect(state.ship).toBeNull()
     expect(state.ufo).toBeNull()
     expect(state.pickup).toBeNull()
   })
@@ -345,20 +343,20 @@ describe('tickGameState — bullet firing', () => {
     expect(fired.pos.y).toBeCloseTo(200)
   })
 
-  it('sets fireCooldown > 0 in newState after firing', () => {
-    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 0 }
+  it('sets fireCooldown > 0 on ship in newState after firing', () => {
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5) }
     const { newState } = tickGameState(state, fireInput, 1)
-    expect(newState.fireCooldown).toBeGreaterThan(0)
+    expect(newState.ship!.fireCooldown).toBeGreaterThan(0)
   })
 
-  it('does not fire when fireCooldown > 0', () => {
-    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 5 }
+  it('does not fire when ship fireCooldown > 0', () => {
+    const state = { ...emptyState(), ship: { ...baseShip()!, fireCooldown: 5 }, bullets: inactiveBullets(5) }
     const { newState } = tickGameState(state, fireInput, 1)
     expect(newState.bullets.every(b => !b.active)).toBe(true)
   })
 
   it('emits audio shot cue when firing', () => {
-    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 0 }
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5) }
     const { events } = tickGameState(state, fireInput, 1)
     expect(events.some(e => e.type === 'audio' && (e as { cue: string }).cue === 'shot')).toBe(true)
   })
@@ -366,10 +364,8 @@ describe('tickGameState — bullet firing', () => {
   it('SpreadShot activates 3 bullet slots', () => {
     const state = {
       ...emptyState(),
-      ship:          baseShip(),
-      bullets:       inactiveBullets(5),
-      activePowerUp: { type: 'SpreadShot' as const, remaining: 5 },
-      fireCooldown:  0,
+      ship:    { ...baseShip()!, powerUp: 'SpreadShot' as const, powerUpRemaining: 5 },
+      bullets: inactiveBullets(5),
     }
     const { newState } = tickGameState(state, fireInput, 1)
     expect(newState.bullets.filter(b => b.active)).toHaveLength(3)
