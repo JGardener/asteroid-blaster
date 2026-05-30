@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { tickGameState } from '../tickGameState'
-import type { GameLoopState } from '../tickGameState'
+import { tickGameState, makeInitialGameLoopState } from '../tickGameState'
+import type { GameLoopState, AsteroidState } from '../tickGameState'
 import type { InputSnapshot } from '../input'
 import {
   SHIP_THRUST, SHIP_ROTATION_SPEED, SHIP_MAX_SPEED, SHIP_DRAG,
@@ -44,6 +44,14 @@ const emptyState = (): GameLoopState => ({
   phase: 'playing',
   lives: 3,
   score: 0,
+  transitionTimer: 0,
+})
+
+const baseAsteroid = (overrides: Partial<AsteroidState> = {}): AsteroidState => ({
+  pos: { x: 100, y: 100 }, vel: { x: 0, y: 0 },
+  size: 'large', radius: 48,
+  rotation: 0, rotationSpeed: 0,
+  ...overrides,
 })
 
 // ── #17 stub ──────────────────────────────────────────────────────────────────
@@ -209,5 +217,161 @@ describe('tickGameState — UFO movement', () => {
     const state = { ...emptyState(), ufo, ship: baseShip() }
     const { newState } = tickGameState(state, noInput, 1)
     expect(newState.ufo).toBeNull()
+  })
+})
+
+// ── #19 collision response ────────────────────────────────────────────────────
+
+describe('tickGameState — collision response', () => {
+  it('bullet hitting asteroid emits score and particleBurst events', () => {
+    const state = {
+      ...emptyState(),
+      asteroids: [baseAsteroid()],
+      bullets:   [baseBullet({ pos: { x: 100, y: 100 } })],
+    }
+    const { events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'score')).toBe(true)
+    expect(events.some(e => e.type === 'particleBurst')).toBe(true)
+  })
+
+  it('bullet hitting carrier asteroid emits spawnPickup event', () => {
+    const state = {
+      ...emptyState(),
+      asteroids:         [baseAsteroid()],
+      bullets:           [baseBullet({ pos: { x: 100, y: 100 } })],
+      carrierAsteroidIdx: 0,
+      carrierPickupType:  'SpreadShot' as const,
+    }
+    const { events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'spawnPickup')).toBe(true)
+  })
+
+  it('bullet hitting non-carrier asteroid does not emit spawnPickup', () => {
+    const state = {
+      ...emptyState(),
+      asteroids:         [baseAsteroid(), baseAsteroid({ pos: { x: 500, y: 500 } })],
+      bullets:           [baseBullet({ pos: { x: 100, y: 100 } })],
+      carrierAsteroidIdx: 1,
+      carrierPickupType:  'RapidFire' as const,
+    }
+    const { events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'spawnPickup')).toBe(false)
+  })
+
+  it('asteroid overlapping ship with no shield emits loseLife event', () => {
+    const state = {
+      ...emptyState(),
+      ship:      { ...baseShip()!, pos: { x: 100, y: 100 }, invincible: 0 },
+      asteroids: [baseAsteroid()],
+    }
+    const { events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'loseLife')).toBe(true)
+  })
+
+  it('asteroid hitting ship with Shield absorbs hit — no loseLife, Shield cleared', () => {
+    const state = {
+      ...emptyState(),
+      ship:         { ...baseShip()!, pos: { x: 100, y: 100 }, invincible: 0 },
+      asteroids:    [baseAsteroid()],
+      activePowerUp: { type: 'Shield' as const, remaining: Infinity },
+    }
+    const { newState, events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'loseLife')).toBe(false)
+    expect(newState.activePowerUp).toBeNull()
+  })
+})
+
+// ── #19 wave clear ────────────────────────────────────────────────────────────
+
+describe('tickGameState — wave clear', () => {
+  it('destroying the last asteroid emits setPhase transitioning event', () => {
+    const state = {
+      ...emptyState(),
+      phase:     'playing' as const,
+      asteroids: [baseAsteroid({ size: 'small', radius: 13 })],
+      bullets:   [baseBullet({ pos: { x: 100, y: 100 } })],
+    }
+    const { events } = tickGameState(state, noInput, 0)
+    expect(events.some(e => e.type === 'setPhase' && (e as { phase: string }).phase === 'transitioning')).toBe(true)
+  })
+})
+
+// ── #19 power-up timer ────────────────────────────────────────────────────────
+
+describe('tickGameState — power-up timer', () => {
+  it('SpreadShot timer expiring clears activePowerUp in newState', () => {
+    const state = {
+      ...emptyState(),
+      activePowerUp: { type: 'SpreadShot' as const, remaining: 0.5 },
+    }
+    const { newState } = tickGameState(state, noInput, 1)
+    expect(newState.activePowerUp).toBeNull()
+  })
+})
+
+// ── #19 makeInitialGameLoopState ──────────────────────────────────────────────
+
+describe('makeInitialGameLoopState', () => {
+  it('produces clean state with no residual powerUp, ufo, or pickup', () => {
+    const state = makeInitialGameLoopState()
+    expect(state.activePowerUp).toBeNull()
+    expect(state.ufo).toBeNull()
+    expect(state.pickup).toBeNull()
+  })
+})
+
+// ── #19 bullet firing ─────────────────────────────────────────────────────────
+
+const inactiveBullets = (count: number): GameLoopState['bullets'] =>
+  Array.from({ length: count }, () => ({
+    pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, lifetime: 0, active: false, radius: 3,
+  }))
+
+const fireInput: InputSnapshot = { ...noInput, fire: true }
+
+describe('tickGameState — bullet firing', () => {
+  it('fire with cooldown ready activates one bullet slot', () => {
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5) }
+    const { newState } = tickGameState(state, fireInput, 1)
+    expect(newState.bullets.filter(b => b.active)).toHaveLength(1)
+  })
+
+  it('fired bullet starts at ship position', () => {
+    const ship = { ...baseShip()!, pos: { x: 300, y: 200 } }
+    const state = { ...emptyState(), ship, bullets: inactiveBullets(5) }
+    const { newState } = tickGameState(state, fireInput, 1)
+    const fired = newState.bullets.find(b => b.active)!
+    expect(fired.pos.x).toBeCloseTo(300)
+    expect(fired.pos.y).toBeCloseTo(200)
+  })
+
+  it('sets fireCooldown > 0 in newState after firing', () => {
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 0 }
+    const { newState } = tickGameState(state, fireInput, 1)
+    expect(newState.fireCooldown).toBeGreaterThan(0)
+  })
+
+  it('does not fire when fireCooldown > 0', () => {
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 5 }
+    const { newState } = tickGameState(state, fireInput, 1)
+    expect(newState.bullets.every(b => !b.active)).toBe(true)
+  })
+
+  it('emits audio shot cue when firing', () => {
+    const state = { ...emptyState(), ship: baseShip(), bullets: inactiveBullets(5), fireCooldown: 0 }
+    const { events } = tickGameState(state, fireInput, 1)
+    expect(events.some(e => e.type === 'audio' && (e as { cue: string }).cue === 'shot')).toBe(true)
+  })
+
+  it('SpreadShot activates 3 bullet slots', () => {
+    const state = {
+      ...emptyState(),
+      ship:          baseShip(),
+      bullets:       inactiveBullets(5),
+      activePowerUp: { type: 'SpreadShot' as const, remaining: 5 },
+      fireCooldown:  0,
+    }
+    const { newState } = tickGameState(state, fireInput, 1)
+    expect(newState.bullets.filter(b => b.active)).toHaveLength(3)
   })
 })
