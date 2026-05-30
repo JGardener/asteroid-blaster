@@ -18,7 +18,8 @@ import { BULLET_POOL_SIZE, COLOR_ACCENT } from './constants'
 import { PickupData } from './entities/PickupData'
 import { PickupRenderer } from './entities/PickupRenderer'
 import { type PickupType } from './powerup'
-import { Ufo, type UfoSide } from './entities/Ufo'
+import { UfoData, type UfoSide } from './entities/UfoData'
+import { UfoRenderer } from './entities/UfoRenderer'
 import { ParticleSystem } from './effects/ParticleSystem'
 import { createStarField } from './effects/StarField'
 import { screenShake }    from './effects/screenShake'
@@ -65,7 +66,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     let carrierPickupType:  PickupType | null = null
     let pickup:             PickupData | null    = null
     let pickupRenderer:     PickupRenderer | null = null
-    let ufo:                Ufo | null       = null
+    let ufoData:            UfoData | null    = null
+    let ufoRenderer:        UfoRenderer | null = null
     let pendingUfoTimers:   number[]         = []
     let transitionTimer     = 0
 
@@ -77,7 +79,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       ufoBulletPool.releaseAll()
       shipRenderer?.destroy(); shipRenderer = null; shipData = null
       pickupRenderer?.destroy(); pickupRenderer = null; pickup = null
-      ufo?.destroy(); ufo = null
+      ufoRenderer?.destroy(); ufoRenderer = null; ufoData = null
       pendingUfoTimers   = []
       carrierAsteroidIdx = null; carrierPickupType = null
       transitionTimer    = 0
@@ -125,9 +127,9 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         ufoBullets: ufoBulletPool.getAll().map(b => ({
           pos: { ...b.pos }, vel: { ...b.vel }, active: b.active, radius: b.radius,
         })),
-        ufo: ufo?.active ? {
-          pos: { ...ufo.pos }, vel: { ...ufo.vel },
-          fireTimer: ufo.fireTimer, active: true, radius: ufo.radius,
+        ufo: ufoData?.active ? {
+          pos: { ...ufoData.pos }, vel: { ...ufoData.vel },
+          fireTimer: ufoData.fireTimer, active: true, radius: ufoData.radius,
         } : null,
         pickup: pickup?.active ? {
           pos: { ...pickup.pos }, vel: { ...pickup.vel },
@@ -185,12 +187,10 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         b.active = s.active
       })
 
-      if (ns.ufo && ufo) {
-        ufo.pos.x     = ns.ufo.pos.x
-        ufo.pos.y     = ns.ufo.pos.y
-        ufo.fireTimer = ns.ufo.fireTimer
-        ufo.gfx.x     = ns.ufo.pos.x
-        ufo.gfx.y     = ns.ufo.pos.y
+      if (ns.ufo && ufoData) {
+        ufoData.pos.x     = ns.ufo.pos.x
+        ufoData.pos.y     = ns.ufo.pos.y
+        ufoData.fireTimer = ns.ufo.fireTimer
       }
     }
 
@@ -199,6 +199,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       bulletPool.getAll().forEach((b, i) => bulletRenderers[i].sync(b))
       ufoBulletPool.getAll().forEach((b, i) => ufoBulletRenderers[i].sync(b))
       if (pickup && pickupRenderer) pickupRenderer.sync(pickup)
+      if (ufoData && ufoRenderer) ufoRenderer.sync(ufoData)
     }
 
     function applyEventsToPIXI(ns: GameLoopState, events: GameEvent[]): void {
@@ -233,19 +234,17 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       }
 
       // UFO entity lifecycle
-      if (ns.ufo && !ufo) {
+      if (ns.ufo && !ufoData) {
         const side: UfoSide = ns.ufo.vel.x > 0 ? 'left' : 'right'
-        ufo           = new Ufo(stage, side)
-        ufo.pos.x     = ns.ufo.pos.x
-        ufo.pos.y     = ns.ufo.pos.y
-        ufo.vel.x     = ns.ufo.vel.x
-        ufo.vel.y     = ns.ufo.vel.y
-        ufo.fireTimer = ns.ufo.fireTimer
-        ufo.active    = true
-      } else if (!ns.ufo && ufo) {
-        ufo.active      = false
-        ufo.gfx.visible = false
-        ufo = null
+        ufoData            = new UfoData(side, { ...ns.ufo.pos })
+        ufoData.vel.x      = ns.ufo.vel.x
+        ufoData.vel.y      = ns.ufo.vel.y
+        ufoData.fireTimer  = ns.ufo.fireTimer
+        ufoRenderer        = new UfoRenderer(stage)
+      } else if (!ns.ufo && ufoData) {
+        ufoRenderer?.destroy()
+        ufoRenderer = null
+        ufoData     = null
       }
 
       // Pickup disappear (grabbed by ship or cleared on wave end — but not when a new one was just spawned)
@@ -374,7 +373,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       asteroidRenderers.forEach(r => r.destroy())
       bulletPool.releaseAll()
       bulletRenderers.forEach(r => r.destroy())
-      ufo?.destroy()
+      ufoRenderer?.destroy()
       ufoBulletPool.releaseAll()
       ufoBulletRenderers.forEach(r => r.destroy())
       pickupRenderer?.destroy()
