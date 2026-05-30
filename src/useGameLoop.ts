@@ -6,14 +6,16 @@ import { InputState } from './input'
 import { ObjectPool } from './ObjectPool'
 import { Ship } from './entities/Ship'
 import { Asteroid } from './entities/Asteroid'
-import { Bullet } from './entities/Bullet'
+import { BulletData } from './entities/BulletData'
+import { BulletRenderer } from './entities/BulletRenderer'
+import { UfoBulletData } from './entities/UfoBulletData'
+import { UfoBulletRenderer } from './entities/UfoBulletRenderer'
 import { tickGameState, type GameLoopState, type GameEvent } from './tickGameState'
 import { asteroidsForLevel } from './progression'
 import { BULLET_POOL_SIZE, COLOR_ACCENT } from './constants'
 import { Pickup } from './entities/Pickup'
 import { type PickupType } from './powerup'
 import { Ufo, type UfoSide } from './entities/Ufo'
-import { UfoBullet } from './entities/UfoBullet'
 import { ParticleSystem } from './effects/ParticleSystem'
 import { Thruster }       from './effects/Thruster'
 import { createStarField } from './effects/StarField'
@@ -31,7 +33,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     const stage   = app.stage
     const audio   = new AudioEngine()
     const input   = new InputState()
-    const bullets   = new ObjectPool(() => new Bullet(stage), BULLET_POOL_SIZE)
+    const bulletPool      = new ObjectPool(() => new BulletData(), BULLET_POOL_SIZE)
+    const bulletRenderers = Array.from({ length: BULLET_POOL_SIZE }, () => new BulletRenderer(stage))
     const particles = new ParticleSystem(stage)
     const thruster  = new Thruster(stage)
     createStarField(stage)
@@ -46,7 +49,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
     const PICKUP_TYPES: PickupType[] = ['SpreadShot', 'RapidFire', 'Shield']
 
-    const ufoBullets = new ObjectPool(() => new UfoBullet(stage), 8)
+    const ufoBulletPool      = new ObjectPool(() => new UfoBulletData(), 8)
+    const ufoBulletRenderers = Array.from({ length: 8 }, () => new UfoBulletRenderer(stage))
 
     let ship:               Ship | null = null
     let asteroids:          Asteroid[]  = []
@@ -66,8 +70,8 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
     function startGame() {
       asteroids.forEach(a => a.destroy())
       asteroids = []
-      bullets.releaseAll(b => b.deactivate())
-      ufoBullets.releaseAll(b => b.deactivate())
+      bulletPool.releaseAll()
+      ufoBulletPool.releaseAll()
       ship?.destroy()
       pickup?.destroy(); pickup = null
       ufo?.destroy(); ufo = null
@@ -101,11 +105,11 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
           size: a.size, radius: a.radius,
           rotation: a.rotation, rotationSpeed: a.rotationSpeed,
         })),
-        bullets: bullets.getAll().map(b => ({
+        bullets: bulletPool.getAll().map(b => ({
           pos: { ...b.pos }, vel: { ...b.vel },
           lifetime: b.lifetime, active: b.active, radius: b.radius,
         })),
-        ufoBullets: ufoBullets.getAll().map(b => ({
+        ufoBullets: ufoBulletPool.getAll().map(b => ({
           pos: { ...b.pos }, vel: { ...b.vel }, active: b.active, radius: b.radius,
         })),
         ufo: ufo?.active ? {
@@ -152,31 +156,25 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         a.gfx.rotation = s.rotation
       })
 
-      bullets.getAll().forEach((b, i) => {
+      bulletPool.getAll().forEach((b, i) => {
         const s = ns.bullets[i]
         if (!s) return
-        b.pos.x       = s.pos.x
-        b.pos.y       = s.pos.y
-        b.vel.x       = s.vel.x
-        b.vel.y       = s.vel.y
-        b.lifetime    = s.lifetime
-        b.active      = s.active
-        b.gfx.x       = s.pos.x
-        b.gfx.y       = s.pos.y
-        b.gfx.visible = s.active
+        b.pos.x    = s.pos.x
+        b.pos.y    = s.pos.y
+        b.vel.x    = s.vel.x
+        b.vel.y    = s.vel.y
+        b.lifetime = s.lifetime
+        b.active   = s.active
       })
 
-      ufoBullets.getAll().forEach((b, i) => {
+      ufoBulletPool.getAll().forEach((b, i) => {
         const s = ns.ufoBullets[i]
         if (!s) return
-        b.pos.x       = s.pos.x
-        b.pos.y       = s.pos.y
-        b.vel.x       = s.vel.x
-        b.vel.y       = s.vel.y
-        b.active      = s.active
-        b.gfx.x       = s.pos.x
-        b.gfx.y       = s.pos.y
-        b.gfx.visible = s.active
+        b.pos.x  = s.pos.x
+        b.pos.y  = s.pos.y
+        b.vel.x  = s.vel.x
+        b.vel.y  = s.vel.y
+        b.active = s.active
       })
 
       if (ns.ufo && ufo) {
@@ -186,6 +184,11 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
         ufo.gfx.x     = ns.ufo.pos.x
         ufo.gfx.y     = ns.ufo.pos.y
       }
+    }
+
+    function renderPIXI(): void {
+      bulletPool.getAll().forEach((b, i) => bulletRenderers[i].sync(b))
+      ufoBulletPool.getAll().forEach((b, i) => ufoBulletRenderers[i].sync(b))
     }
 
     function applyEventsToPIXI(ns: GameLoopState, events: GameEvent[]): void {
@@ -325,6 +328,7 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
 
       applyEventsToPIXI(newState, events)
       syncEntitiesToState(newState)
+      renderPIXI()
 
       // Sync local vars from newState (tickGameState owns these now)
       transitionTimer    = newState.transitionTimer
@@ -362,9 +366,11 @@ export function useGameLoop(app: Application, onError?: (err: Error) => void) {
       app.ticker?.remove(wrappedTick)
       ship?.destroy()
       asteroids.forEach(a => a.destroy())
-      bullets.releaseAll()
+      bulletPool.releaseAll()
+      bulletRenderers.forEach(r => r.destroy())
       ufo?.destroy()
-      ufoBullets.releaseAll()
+      ufoBulletPool.releaseAll()
+      ufoBulletRenderers.forEach(r => r.destroy())
       pickup?.destroy()
       input.destroy()
       audio.destroy()
