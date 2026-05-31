@@ -97,65 +97,72 @@ export type AudioCue =
   | 'ufoShot'
 
 export type GameEvent =
-  | { type: 'score';            delta: number }
+  | { type: 'score';              delta: number }
   | { type: 'loseLife' }
   | { type: 'nextLevel' }
-  | { type: 'setPhase';         phase: GamePhase }
-  | { type: 'spawnPickup';      pickupType: PickupType; pos: Vec2 }
-  | { type: 'particleBurst';    pos: Vec2; color: number; size: AsteroidSize }
-  | { type: 'asteroidDestroyed';idx: number }
+  | { type: 'setPhase';           phase: GamePhase }
+  | { type: 'spawnPickup';        pickupType: PickupType; pos: Vec2 }
+  | { type: 'particleBurst';      pos: Vec2; color: number; size: AsteroidSize }
+  | { type: 'asteroidDestroyed';  idx: number }
+  | { type: 'asteroidFragmented'; fragments: { size: AsteroidSize; pos: Vec2; vel: Vec2; rotationSpeed: number }[] }
+  | { type: 'waveSpawned';        asteroids: { pos: Vec2; vel: Vec2; rotationSpeed: number }[] }
   | { type: 'screenShake' }
-  | { type: 'audio';        cue: AudioCue }
+  | { type: 'audio';              cue: AudioCue }
 
-function tickShip(ship: ShipState, input: InputSnapshot, dt: number): ShipState {
-  let { pos, vel, rotation, invincible, powerUp } = ship
+function tickShip(ship: ShipState, input: InputSnapshot, dt: number): void {
+  if (input.left)  ship.rotation -= SHIP_ROTATION_SPEED * dt
+  if (input.right) ship.rotation += SHIP_ROTATION_SPEED * dt
 
-  if (input.left)  rotation -= SHIP_ROTATION_SPEED * dt
-  if (input.right) rotation += SHIP_ROTATION_SPEED * dt
-
-  const thrustOn = input.thrust
+  ship.thrustOn = input.thrust
   if (input.thrust) {
-    vel = {
-      x: vel.x + Math.cos(rotation) * SHIP_THRUST * dt,
-      y: vel.y + Math.sin(rotation) * SHIP_THRUST * dt,
-    }
-    const speed = Math.hypot(vel.x, vel.y)
+    ship.vel.x += Math.cos(ship.rotation) * SHIP_THRUST * dt
+    ship.vel.y += Math.sin(ship.rotation) * SHIP_THRUST * dt
+    const speed = Math.hypot(ship.vel.x, ship.vel.y)
     if (speed > SHIP_MAX_SPEED) {
-      vel = { x: (vel.x / speed) * SHIP_MAX_SPEED, y: (vel.y / speed) * SHIP_MAX_SPEED }
+      ship.vel.x = (ship.vel.x / speed) * SHIP_MAX_SPEED
+      ship.vel.y = (ship.vel.y / speed) * SHIP_MAX_SPEED
     }
   }
 
   const drag = Math.pow(SHIP_DRAG, dt)
-  vel = { x: vel.x * drag, y: vel.y * drag }
-  pos = { x: pos.x + vel.x * dt, y: pos.y + vel.y * dt }
-  pos = wrapPosition(pos, 0)
+  ship.vel.x *= drag
+  ship.vel.y *= drag
+  ship.pos.x += ship.vel.x * dt
+  ship.pos.y += ship.vel.y * dt
+  ship.pos = wrapPosition(ship.pos, 0)
 
-  if (invincible > 0) invincible -= dt
-
-  return { pos, vel, rotation, invincible, thrustOn, powerUp, powerUpRemaining: ship.powerUpRemaining, fireCooldown: ship.fireCooldown }
+  if (ship.invincible > 0) ship.invincible -= dt
 }
 
-function tickAsteroid(ast: AsteroidState, speedMult: number, dt: number): AsteroidState {
-  const pos = wrapPosition(
+function tickAsteroid(ast: AsteroidState, speedMult: number, dt: number): void {
+  ast.pos = wrapPosition(
     { x: ast.pos.x + ast.vel.x * speedMult, y: ast.pos.y + ast.vel.y * speedMult },
     ast.radius,
   )
-  return { ...ast, pos, rotation: ast.rotation + ast.rotationSpeed * dt }
+  ast.rotation += ast.rotationSpeed * dt
 }
 
-function tickBullet(b: BulletState, dt: number): BulletState {
-  if (!b.active) return b
-  const pos      = { x: b.pos.x + b.vel.x * dt, y: b.pos.y + b.vel.y * dt }
-  const lifetime = b.lifetime - dt
-  const oob      = pos.x < 0 || pos.x > CANVAS_W || pos.y < 0 || pos.y > CANVAS_H
-  return { ...b, pos, lifetime, active: lifetime > 0 && !oob }
+function tickBullet(b: BulletState, dt: number): void {
+  if (!b.active) return
+  b.pos.x   += b.vel.x * dt
+  b.pos.y   += b.vel.y * dt
+  b.lifetime -= dt
+  const oob  = b.pos.x < 0 || b.pos.x > CANVAS_W || b.pos.y < 0 || b.pos.y > CANVAS_H
+  b.active   = b.lifetime > 0 && !oob
 }
 
-function tickUfoBullet(b: UfoBulletState, dt: number): UfoBulletState {
-  if (!b.active) return b
-  const pos = { x: b.pos.x + b.vel.x * dt, y: b.pos.y + b.vel.y * dt }
-  const oob = pos.x < 0 || pos.x > CANVAS_W || pos.y < 0 || pos.y > CANVAS_H
-  return { ...b, pos, active: !oob }
+function tickUfoBullet(b: UfoBulletState, dt: number): void {
+  if (!b.active) return
+  b.pos.x += b.vel.x * dt
+  b.pos.y += b.vel.y * dt
+  const oob = b.pos.x < 0 || b.pos.x > CANVAS_W || b.pos.y < 0 || b.pos.y > CANVAS_H
+  if (oob) b.active = false
+}
+
+function tickPickup(pickup: PickupState, dt: number): void {
+  pickup.pos.x += pickup.vel.x * dt
+  pickup.pos.y += pickup.vel.y * dt
+  pickup.pos    = wrapPosition(pickup.pos, pickup.radius)
 }
 
 function tickUfo(
@@ -164,106 +171,80 @@ function tickUfo(
   shipPos: Vec2,
   inaccuracy: number,
   dt: number,
-): { ufo: UfoState | null; ufoBullets: UfoBulletState[]; fired: boolean } {
-  const pos = { x: ufo.pos.x + ufo.vel.x * dt, y: ufo.pos.y + ufo.vel.y * dt }
+): { exited: boolean; fired: boolean } {
+  ufo.pos.x += ufo.vel.x * dt
+  ufo.pos.y += ufo.vel.y * dt
 
   const exited =
-    (ufo.vel.x < 0 && pos.x < -UFO_RADIUS) ||
-    (ufo.vel.x > 0 && pos.x > CANVAS_W + UFO_RADIUS)
-  if (exited) return { ufo: null, ufoBullets, fired: false }
+    (ufo.vel.x < 0 && ufo.pos.x < -UFO_RADIUS) ||
+    (ufo.vel.x > 0 && ufo.pos.x > CANVAS_W + UFO_RADIUS)
+  if (exited) return { exited: true, fired: false }
 
-  let fireTimer = ufo.fireTimer - dt
-  let nextBullets = ufoBullets
+  ufo.fireTimer -= dt
   let fired = false
 
-  if (fireTimer <= 0) {
-    fireTimer = UFO_FIRE_RATE
-    const base   = Math.atan2(shipPos.y - pos.y, shipPos.x - pos.x)
-    const spread = inaccuracy * UFO_MAX_SPREAD
-    const angle  = base + (Math.random() - 0.5) * 2 * spread
+  if (ufo.fireTimer <= 0) {
+    ufo.fireTimer = UFO_FIRE_RATE
+    const base    = Math.atan2(shipPos.y - ufo.pos.y, shipPos.x - ufo.pos.x)
+    const spread  = inaccuracy * UFO_MAX_SPREAD
+    const angle   = base + (Math.random() - 0.5) * 2 * spread
     const freeIdx = ufoBullets.findIndex(b => !b.active)
     if (freeIdx >= 0) {
-      nextBullets = [...ufoBullets]
-      nextBullets[freeIdx] = {
-        pos:    { ...pos },
-        vel:    { x: Math.cos(angle) * UFO_BULLET_SPEED, y: Math.sin(angle) * UFO_BULLET_SPEED },
-        active: true,
-        radius: 4,
-      }
-      fired = true
+      const b  = ufoBullets[freeIdx]
+      b.pos.x  = ufo.pos.x
+      b.pos.y  = ufo.pos.y
+      b.vel.x  = Math.cos(angle) * UFO_BULLET_SPEED
+      b.vel.y  = Math.sin(angle) * UFO_BULLET_SPEED
+      b.active = true
+      fired    = true
     }
   }
 
-  return { ufo: { ...ufo, pos, fireTimer, active: true }, ufoBullets: nextBullets, fired }
-}
-
-interface CollisionResult {
-  ship:              ShipState | null
-  asteroids:         AsteroidState[]
-  bullets:           BulletState[]
-  ufoBullets:        UfoBulletState[]
-  ufo:               UfoState | null
-  pickup:            PickupState | null
-  carrierAsteroidIdx: number | null
-  carrierPickupType: PickupType | null
-  events:            GameEvent[]
+  return { exited: false, fired }
 }
 
 function respondToCollisionsInState(
-  pairs:             ReturnType<typeof detectCollisions>,
-  ship:              ShipState | null,
-  asteroids:         AsteroidState[],
-  bullets:           BulletState[],
-  activeBulletMap:   Array<{ idx: number }>,
-  ufoBullets:        UfoBulletState[],
-  activeUfoBulletMap:Array<{ idx: number }>,
-  ufo:               UfoState | null,
-  pickup:            PickupState | null,
-  carrierAsteroidIdx:number | null,
-  carrierPickupType: PickupType | null,
-): CollisionResult {
+  pairs:              ReturnType<typeof detectCollisions>,
+  state:              GameLoopState,
+  activeBulletMap:    Array<{ idx: number }>,
+  activeUfoBulletMap: Array<{ idx: number }>,
+): GameEvent[] {
   const events: GameEvent[]   = []
   const deadBulletIdxs        = new Set<number>()
   const deadUfoBulletIdxs     = new Set<number>()
   const deadAsteroidIdxs      = new Set<number>()
-  const fragments: AsteroidState[] = []
-  let ufoKilled    = false
-  let pickupGrabbed = false
+  const fragments: { size: AsteroidSize; pos: Vec2; vel: Vec2; rotationSpeed: number }[] = []
 
   for (const pair of pairs) {
     switch (pair.kind) {
       case 'bulletHitsAsteroid': {
-        const bulletFullIdx  = activeBulletMap[pair.bulletId].idx
-        const ast            = asteroids[pair.asteroidId]
+        const bulletFullIdx = activeBulletMap[pair.bulletId].idx
+        const ast           = state.asteroids[pair.asteroidId]
         deadBulletIdxs.add(bulletFullIdx)
         deadAsteroidIdxs.add(pair.asteroidId)
         events.push({ type: 'score', delta: ASTEROID_SCORE[ast.size] })
         events.push({ type: 'particleBurst', pos: { ...ast.pos }, color: COLOR_ACCENT, size: ast.size })
         events.push({ type: 'asteroidDestroyed', idx: pair.asteroidId })
-        const cue: GameEvent & { type: 'audio' } = {
-          type: 'audio',
-          cue:  ast.size === 'large' ? 'explode_large' : ast.size === 'medium' ? 'explode_medium' : 'explode_small',
-        }
-        events.push(cue)
+        const cue: AudioCue = ast.size === 'large' ? 'explode_large' : ast.size === 'medium' ? 'explode_medium' : 'explode_small'
+        events.push({ type: 'audio', cue })
         if (ast.size !== 'small') {
           const next: AsteroidSize = ast.size === 'large' ? 'medium' : 'small'
-          const r = ASTEROID_RADII[next]
           fragments.push(
-            { pos: { ...ast.pos }, vel: { x:  ast.vel.y * 1.5 + (Math.random() - 0.5), y: -ast.vel.x * 1.5 + (Math.random() - 0.5) }, size: next, radius: r, rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.02 },
-            { pos: { ...ast.pos }, vel: { x: -ast.vel.y * 1.5 + (Math.random() - 0.5), y:  ast.vel.x * 1.5 + (Math.random() - 0.5) }, size: next, radius: r, rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.02 },
+            { size: next, pos: { ...ast.pos }, vel: { x:  ast.vel.y * 1.5 + (Math.random() - 0.5), y: -ast.vel.x * 1.5 + (Math.random() - 0.5) }, rotationSpeed: (Math.random() - 0.5) * 0.02 },
+            { size: next, pos: { ...ast.pos }, vel: { x: -ast.vel.y * 1.5 + (Math.random() - 0.5), y:  ast.vel.x * 1.5 + (Math.random() - 0.5) }, rotationSpeed: (Math.random() - 0.5) * 0.02 },
           )
         }
-        if (pair.asteroidId === carrierAsteroidIdx && carrierPickupType) {
-          events.push({ type: 'spawnPickup', pickupType: carrierPickupType, pos: { ...ast.pos } })
-          carrierAsteroidIdx = null
-          carrierPickupType  = null
+        if (pair.asteroidId === state.carrierAsteroidIdx && state.carrierPickupType) {
+          events.push({ type: 'spawnPickup', pickupType: state.carrierPickupType, pos: { ...ast.pos } })
+          state.carrierAsteroidIdx = null
+          state.carrierPickupType  = null
         }
         break
       }
       case 'bulletHitsUfo': {
         const bulletFullIdx = activeBulletMap[pair.bulletId].idx
         deadBulletIdxs.add(bulletFullIdx)
-        ufoKilled = true
+        state.ufo = null
         events.push({ type: 'score', delta: UFO_SCORE })
         events.push({ type: 'audio', cue: 'explode_medium' })
         break
@@ -271,31 +252,44 @@ function respondToCollisionsInState(
       case 'ufoBulletHitsShip': {
         const ubFullIdx = activeUfoBulletMap[pair.bulletId].idx
         deadUfoBulletIdxs.add(ubFullIdx)
-        if (ship?.powerUp === 'Shield') {
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null, powerUpRemaining: 0 } : null
+        if (state.ship?.powerUp === 'Shield') {
+          state.ship.invincible       = INVINCIBILITY_FRAMES
+          state.ship.powerUp          = null
+          state.ship.powerUpRemaining = 0
         } else {
           events.push({ type: 'loseLife' })
           events.push({ type: 'screenShake' })
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, vel: { x: 0, y: 0 }, pos: { x: CANVAS_W / 2, y: CANVAS_H / 2 } } : null
+          if (state.ship) {
+            state.ship.invincible = INVINCIBILITY_FRAMES
+            state.ship.vel        = { x: 0, y: 0 }
+            state.ship.pos        = { x: CANVAS_W / 2, y: CANVAS_H / 2 }
+          }
         }
         events.push({ type: 'audio', cue: 'shipHit' })
         break
       }
       case 'asteroidHitsShip': {
-        if (ship?.powerUp === 'Shield') {
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, powerUp: null, powerUpRemaining: 0 } : null
+        if (state.ship?.powerUp === 'Shield') {
+          state.ship.invincible       = INVINCIBILITY_FRAMES
+          state.ship.powerUp          = null
+          state.ship.powerUpRemaining = 0
         } else {
           events.push({ type: 'loseLife' })
           events.push({ type: 'screenShake' })
-          ship = ship ? { ...ship, invincible: INVINCIBILITY_FRAMES, vel: { x: 0, y: 0 }, pos: { x: CANVAS_W / 2, y: CANVAS_H / 2 } } : null
+          if (state.ship) {
+            state.ship.invincible = INVINCIBILITY_FRAMES
+            state.ship.vel        = { x: 0, y: 0 }
+            state.ship.pos        = { x: CANVAS_W / 2, y: CANVAS_H / 2 }
+          }
         }
         events.push({ type: 'audio', cue: 'shipHit' })
         break
       }
       case 'shipGrabsPickup': {
-        if (pickup && ship) {
-          ship = { ...ship, powerUp: pickup.type, powerUpRemaining: pickup.type === 'Shield' ? Infinity : PICKUP_DURATION }
-          pickupGrabbed = true
+        if (state.pickup && state.ship) {
+          state.ship.powerUp          = state.pickup.type
+          state.ship.powerUpRemaining = state.pickup.type === 'Shield' ? Infinity : PICKUP_DURATION
+          state.pickup                = null
           events.push({ type: 'audio', cue: 'pickupCollected' })
         }
         break
@@ -303,118 +297,96 @@ function respondToCollisionsInState(
     }
   }
 
-  // Remove dead bullets / ufoBullets
-  const nextBullets    = bullets.map((b, i) => deadBulletIdxs.has(i) ? { ...b, active: false } : b)
-  const nextUfoBullets = ufoBullets.map((b, i) => deadUfoBulletIdxs.has(i) ? { ...b, active: false } : b)
+  // Deactivate dead bullets / ufoBullets
+  for (const idx of deadBulletIdxs)    state.bullets[idx].active    = false
+  for (const idx of deadUfoBulletIdxs) state.ufoBullets[idx].active = false
 
-  // Remove dead asteroids; adjust carrier index for any preceding removals
-  const survivors: AsteroidState[] = []
-  let carrierShift = 0
-  asteroids.forEach((a, i) => {
-    if (deadAsteroidIdxs.has(i)) {
-      if (carrierAsteroidIdx !== null && i < carrierAsteroidIdx) carrierShift++
-    } else {
-      survivors.push(a)
+  // Adjust carrierAsteroidIdx for removed asteroids
+  if (state.carrierAsteroidIdx !== null && deadAsteroidIdxs.size > 0) {
+    let shift = 0
+    for (const i of deadAsteroidIdxs) {
+      if (i < state.carrierAsteroidIdx) shift++
     }
-  })
-  if (carrierAsteroidIdx !== null) carrierAsteroidIdx -= carrierShift
-  const nextAsteroids = [...survivors, ...fragments]
-
-  return {
-    ship,
-    asteroids:         nextAsteroids,
-    bullets:           nextBullets,
-    ufoBullets:        nextUfoBullets,
-    ufo:               ufoKilled ? null : ufo,
-    pickup:            pickupGrabbed ? null : pickup,
-    carrierAsteroidIdx,
-    carrierPickupType,
-    events,
+    state.carrierAsteroidIdx -= shift
   }
+
+  // Splice dead asteroids descending so earlier indices stay valid
+  for (const idx of [...deadAsteroidIdxs].sort((a, b) => b - a)) {
+    state.asteroids.splice(idx, 1)
+  }
+
+  // Fragments emitted as event; applyEventsToPIXI creates AsteroidData + renderers
+  if (fragments.length > 0) {
+    events.push({ type: 'asteroidFragmented', fragments })
+  }
+
+  return events
 }
 
 export function tickGameState(
   state: GameLoopState,
   input: InputSnapshot,
   dt: number,
-): { newState: GameLoopState; events: GameEvent[] } {
+): GameEvent[] {
   const events: GameEvent[] = []
 
-  let ship = state.ship ? tickShip(state.ship, input, dt) : null
+  if (state.ship) tickShip(state.ship, input, dt)
 
   const speedMult = speedForLevel(state.level) * dt
-  let asteroids = state.asteroids.map(a => tickAsteroid(a, speedMult, dt))
-  let bullets   = state.bullets.map(b => tickBullet(b, dt))
+  for (const ast of state.asteroids) tickAsteroid(ast, speedMult, dt)
+  for (const b   of state.bullets)   tickBullet(b, dt)
+  for (const b   of state.ufoBullets) tickUfoBullet(b, dt)
 
-  let ufoBullets = state.ufoBullets.map(b => tickUfoBullet(b, dt))
-  let ufo        = state.ufo
-
-  if (ufo && ship) {
+  if (state.ufo && state.ship) {
     const inaccuracy = 1 - ufoAccuracyForLevel(state.level)
-    const result     = tickUfo(ufo, ufoBullets, ship.pos, inaccuracy, dt)
-    ufo        = result.ufo
-    ufoBullets = result.ufoBullets
-    if (result.fired) events.push({ type: 'audio', cue: 'ufoShot' })
+    const { exited, fired } = tickUfo(state.ufo, state.ufoBullets, state.ship.pos, inaccuracy, dt)
+    if (exited) state.ufo = null
+    if (fired)  events.push({ type: 'audio', cue: 'ufoShot' })
   }
 
+  if (state.pickup) tickPickup(state.pickup, dt)
+
   // ── collision detection + response ───────────────────────────────────────────
-  let { pickup, carrierAsteroidIdx, carrierPickupType } = state
-  const preCollisionCount = asteroids.length
+  const preCollisionCount = state.asteroids.length
 
   if (state.phase === 'playing') {
     const activeBulletMap:    Array<{ idx: number }> = []
     const activeUfoBulletMap: Array<{ idx: number }> = []
-    bullets.forEach((b, idx)    => { if (b.active) activeBulletMap.push({ idx }) })
-    ufoBullets.forEach((b, idx) => { if (b.active) activeUfoBulletMap.push({ idx }) })
+    state.bullets.forEach((b, idx)    => { if (b.active) activeBulletMap.push({ idx }) })
+    state.ufoBullets.forEach((b, idx) => { if (b.active) activeUfoBulletMap.push({ idx }) })
 
     const snapshot: CollisionSnapshot = {
-      ship:       ship ? { pos: ship.pos, radius: 10, invincible: ship.invincible } : null,
-      bullets:    activeBulletMap.map((entry, i)    => ({ pos: bullets[entry.idx].pos,    radius: bullets[entry.idx].radius,    id: i })),
-      asteroids:  asteroids.map((a, i)               => ({ pos: a.pos,                    radius: a.radius,                     id: i })),
-      ufoBullets: activeUfoBulletMap.map((entry, i) => ({ pos: ufoBullets[entry.idx].pos, radius: ufoBullets[entry.idx].radius, id: i })),
-      ufo:        ufo    ? { pos: ufo.pos,    radius: ufo.radius }    : null,
-      pickup:     pickup ? { pos: pickup.pos, radius: pickup.radius } : null,
+      ship:       state.ship ? { pos: state.ship.pos, radius: 10, invincible: state.ship.invincible } : null,
+      bullets:    activeBulletMap.map((entry, i)    => ({ pos: state.bullets[entry.idx].pos,    radius: state.bullets[entry.idx].radius,    id: i })),
+      asteroids:  state.asteroids.map((a, i)         => ({ pos: a.pos,                           radius: a.radius,                           id: i })),
+      ufoBullets: activeUfoBulletMap.map((entry, i) => ({ pos: state.ufoBullets[entry.idx].pos, radius: state.ufoBullets[entry.idx].radius, id: i })),
+      ufo:        state.ufo    ? { pos: state.ufo.pos,    radius: state.ufo.radius }    : null,
+      pickup:     state.pickup ? { pos: state.pickup.pos, radius: state.pickup.radius } : null,
     }
 
     const pairs = detectCollisions(snapshot)
     if (pairs.length > 0) {
-      const cr = respondToCollisionsInState(
-        pairs, ship, asteroids, bullets, activeBulletMap,
-        ufoBullets, activeUfoBulletMap, ufo, pickup,
-        carrierAsteroidIdx, carrierPickupType,
-      )
-      ship               = cr.ship
-      asteroids          = cr.asteroids
-      bullets            = cr.bullets
-      ufoBullets         = cr.ufoBullets
-      ufo                = cr.ufo
-      pickup             = cr.pickup
-      carrierAsteroidIdx = cr.carrierAsteroidIdx
-      carrierPickupType  = cr.carrierPickupType
-      events.push(...cr.events)
+      events.push(...respondToCollisionsInState(pairs, state, activeBulletMap, activeUfoBulletMap))
     }
   }
 
   // ── power-up timer ───────────────────────────────────────────────────────────
-  if (ship && ship.powerUp && ship.powerUpRemaining !== Infinity) {
-    const next = ship.powerUpRemaining - dt
-    ship = next <= 0
-      ? { ...ship, powerUp: null, powerUpRemaining: 0 }
-      : { ...ship, powerUpRemaining: next }
+  if (state.ship?.powerUp && state.ship.powerUpRemaining !== Infinity) {
+    state.ship.powerUpRemaining -= dt
+    if (state.ship.powerUpRemaining <= 0) {
+      state.ship.powerUp          = null
+      state.ship.powerUpRemaining = 0
+    }
   }
 
   // ── UFO scheduling ───────────────────────────────────────────────────────────
-  let { level, phase } = state
-  let transitionTimer  = state.transitionTimer
-  let pendingUfoTimers = [...state.pendingUfoTimers]
-
-  if (phase === 'playing') {
-    for (let i = pendingUfoTimers.length - 1; i >= 0; i--) {
-      pendingUfoTimers[i] -= dt
-      if (pendingUfoTimers[i] <= 0 && !ufo) {
-        pendingUfoTimers.splice(i, 1)
+  if (state.phase === 'playing') {
+    for (let i = state.pendingUfoTimers.length - 1; i >= 0; i--) {
+      state.pendingUfoTimers[i] -= dt
+      if (state.pendingUfoTimers[i] <= 0 && !state.ufo) {
+        state.pendingUfoTimers.splice(i, 1)
         const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right'
-        ufo = {
+        state.ufo = {
           pos:       { x: side === 'left' ? -UFO_RADIUS : CANVAS_W + UFO_RADIUS, y: Math.random() * CANVAS_H * 0.6 + CANVAS_H * 0.2 },
           vel:       { x: side === 'left' ? UFO_SPEED : -UFO_SPEED, y: 0 },
           fireTimer: UFO_FIRE_RATE,
@@ -427,90 +399,85 @@ export function tickGameState(
   }
 
   // ── wave clear ───────────────────────────────────────────────────────────────
-  if (phase === 'playing' && preCollisionCount > 0 && asteroids.length === 0) {
-    level             += 1
-    phase              = 'transitioning'
-    transitionTimer    = TRANSITION_FRAMES
-    ufo                = null
-    pickup             = null
-    pendingUfoTimers   = []
-    carrierAsteroidIdx = null
-    carrierPickupType  = null
-    ufoBullets         = ufoBullets.map(b => ({ ...b, active: false }))
+  const fragmentCount = events
+    .filter(e => e.type === 'asteroidFragmented')
+    .flatMap(e => (e as { type: 'asteroidFragmented'; fragments: unknown[] }).fragments)
+    .length
+
+  if (state.phase === 'playing' && preCollisionCount > 0 && state.asteroids.length === 0 && fragmentCount === 0) {
+    state.level           += 1
+    state.phase            = 'transitioning'
+    state.transitionTimer  = TRANSITION_FRAMES
+    state.ufo              = null
+    state.pickup           = null
+    state.pendingUfoTimers = []
+    state.carrierAsteroidIdx = null
+    state.carrierPickupType  = null
+    for (const b of state.ufoBullets) b.active = false
     events.push({ type: 'nextLevel' })
     events.push({ type: 'setPhase', phase: 'transitioning' })
     events.push({ type: 'audio', cue: 'waveCleared' })
   }
 
   // ── level transition timer ───────────────────────────────────────────────────
-  if (phase === 'transitioning' && transitionTimer > 0) {
-    transitionTimer -= dt
-    if (transitionTimer <= 0) {
-      transitionTimer = 0
-      const PICKUP_TYPES: PickupType[] = ['SpreadShot', 'RapidFire', 'Shield']
-      const count = asteroidsForLevel(level)
-      const newAsteroids: AsteroidState[] = []
+  const PICKUP_TYPES: PickupType[] = ['SpreadShot', 'RapidFire', 'Shield']
+
+  if (state.phase === 'transitioning' && state.transitionTimer > 0) {
+    state.transitionTimer -= dt
+    if (state.transitionTimer <= 0) {
+      state.transitionTimer = 0
+      const count           = asteroidsForLevel(state.level)
+      const newAsteroidParams: { pos: Vec2; vel: Vec2; rotationSpeed: number }[] = []
       for (let i = 0; i < count; i++) {
         const x     = Math.random() < 0.5 ? -ASTEROID_RADII.large : CANVAS_W + ASTEROID_RADII.large
         const y     = Math.random() * CANVAS_H
         const speed = Math.random() * 0.8 + 0.4
         const angle = Math.random() * Math.PI * 2
-        newAsteroids.push({
-          pos:           { x, y },
-          vel:           { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
-          size:          'large',
-          radius:        ASTEROID_RADII.large,
-          rotation:      0,
+        newAsteroidParams.push({
+          pos: { x, y },
+          vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
           rotationSpeed: (Math.random() - 0.5) * 0.02,
         })
       }
-      asteroids          = newAsteroids
-      carrierAsteroidIdx = Math.floor(Math.random() * newAsteroids.length)
-      carrierPickupType  = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)]
-      const ufoCount     = ufoFrequencyForLevel(level)
-      const waveLen      = asteroidsForLevel(level) * 300
-      pendingUfoTimers   = Array.from({ length: ufoCount }, () => 60 + Math.floor(Math.random() * Math.max(1, waveLen - 60)))
-      phase              = 'playing'
+      state.carrierAsteroidIdx = Math.floor(Math.random() * count)
+      state.carrierPickupType  = PICKUP_TYPES[Math.floor(Math.random() * PICKUP_TYPES.length)]
+      const ufoCount           = ufoFrequencyForLevel(state.level)
+      const waveLen            = asteroidsForLevel(state.level) * 300
+      state.pendingUfoTimers   = Array.from({ length: ufoCount }, () => 60 + Math.floor(Math.random() * Math.max(1, waveLen - 60)))
+      state.phase              = 'playing'
+      events.push({ type: 'waveSpawned', asteroids: newAsteroidParams })
       events.push({ type: 'setPhase', phase: 'playing' })
     }
   }
 
   // ── bullet firing ─────────────────────────────────────────────────────────────
-  let fireCooldown = ship ? Math.max(0, ship.fireCooldown - dt) : 0
-  if (ship && phase === 'playing' && input.fire && ship.fireCooldown <= 0) {
-    const firingShip  = ship
-    const powerUpType = firingShip.powerUp
-    const angles      = powerUpType === 'SpreadShot' ? spreadShotAngles(firingShip.rotation) : [firingShip.rotation]
+  const canFire = state.ship ? state.ship.fireCooldown <= 0 : false
+  if (state.ship) state.ship.fireCooldown = Math.max(0, state.ship.fireCooldown - dt)
+
+  if (state.ship && state.phase === 'playing' && input.fire && canFire) {
+    const powerUpType = state.ship.powerUp
+    const angles      = powerUpType === 'SpreadShot' ? spreadShotAngles(state.ship.rotation) : [state.ship.rotation]
     let didFire = false
     for (const angle of angles) {
-      const slotIdx = bullets.findIndex(b => !b.active)
+      const slotIdx = state.bullets.findIndex(b => !b.active)
       if (slotIdx >= 0) {
-        bullets = bullets.map((b, i) => i !== slotIdx ? b : {
-          pos:      { ...firingShip.pos },
-          vel:      { x: Math.cos(angle) * BULLET_SPEED, y: Math.sin(angle) * BULLET_SPEED },
-          lifetime: BULLET_LIFETIME,
-          active:   true,
-          radius:   3,
-        })
-        didFire = true
+        const b    = state.bullets[slotIdx]
+        b.pos.x    = state.ship.pos.x
+        b.pos.y    = state.ship.pos.y
+        b.vel.x    = Math.cos(angle) * BULLET_SPEED
+        b.vel.y    = Math.sin(angle) * BULLET_SPEED
+        b.lifetime = BULLET_LIFETIME
+        b.active   = true
+        didFire    = true
       }
     }
     if (didFire) {
-      fireCooldown = effectiveCooldown(fireCooldownForLevel(level), powerUpType)
+      state.ship.fireCooldown = effectiveCooldown(fireCooldownForLevel(state.level), powerUpType)
       events.push({ type: 'audio', cue: 'shot' })
     }
   }
-  if (ship) ship = { ...ship, fireCooldown }
 
-  return {
-    newState: {
-      ...state,
-      ship, asteroids, bullets, ufoBullets, ufo,
-      pickup, carrierAsteroidIdx, carrierPickupType,
-      level, phase, transitionTimer, pendingUfoTimers,
-    },
-    events,
-  }
+  return events
 }
 
 export function makeInitialGameLoopState(): GameLoopState {
