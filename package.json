@@ -1,6 +1,6 @@
 {
   "name": "asteroid-blaster",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "PixiJS arcade shooter — portfolio demo component",
   "type": "module",
   "main": "./dist/asteroid-blaster.umd.cjs",
