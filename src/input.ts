@@ -1,3 +1,5 @@
+import { getTouchSnapshot } from './touchInput'
+
 export interface InputSnapshot {
   thrust:  boolean
   left:    boolean
@@ -29,13 +31,14 @@ export class InputState {
   }
 
   snapshot(): InputSnapshot {
+    const touch = getTouchSnapshot()
     return {
-      thrust:  this.keys.has('ArrowUp')    || this.keys.has('w') || this.keys.has('W'),
-      left:    this.keys.has('ArrowLeft')  || this.keys.has('a') || this.keys.has('A'),
-      right:   this.keys.has('ArrowRight') || this.keys.has('d') || this.keys.has('D'),
-      fire:    this.keys.has(' '),
-      pause:   this.keys.has('Escape'),
-      confirm: this.keys.has('Enter') || this.keys.has(' '),
+      thrust:  touch.thrust  || this.keys.has('ArrowUp')    || this.keys.has('w') || this.keys.has('W'),
+      left:    touch.left    || this.keys.has('ArrowLeft')  || this.keys.has('a') || this.keys.has('A'),
+      right:   touch.right   || this.keys.has('ArrowRight') || this.keys.has('d') || this.keys.has('D'),
+      fire:    touch.fire    || this.keys.has(' '),
+      pause:   touch.pause   || this.keys.has('Escape'),
+      confirm: touch.confirm || this.keys.has('Enter') || this.keys.has(' '),
     }
   }
 
