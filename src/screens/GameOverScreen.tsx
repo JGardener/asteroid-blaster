@@ -1,25 +1,35 @@
 import { useGameStore } from '../store'
+import { setTouch } from '../touchInput'
 
-export default function GameOverScreen({ isTouchDevice: _isTouchDevice }: { isTouchDevice?: boolean } = {}) {
+export default function GameOverScreen({ isTouchDevice = false }: { isTouchDevice?: boolean } = {}) {
   const { phase, score, hiScore } = useGameStore()
   const show = phase === 'gameover'
 
+  function handlePointerDown() {
+    setTouch('confirm', true)
+    setTouch('confirm', false)
+  }
+
   return (
-    <div style={{
-      position:        'absolute',
-      inset:           0,
-      display:         'flex',
-      flexDirection:   'column',
-      alignItems:      'center',
-      justifyContent:  'center',
-      fontFamily:      'var(--ab-mono)',
-      color:           'var(--ab-text)',
-      backgroundColor: 'rgba(10,10,15,0.88)',
-      opacity:         show ? 1 : 0,
-      pointerEvents:   'none',
-      transition:      'opacity 400ms var(--ab-ease-out)',
-      zIndex:          2,
-    }}>
+    <div
+      data-testid="game-over-screen-overlay"
+      onPointerDown={isTouchDevice && show ? handlePointerDown : undefined}
+      style={{
+        position:        'absolute',
+        inset:           0,
+        display:         'flex',
+        flexDirection:   'column',
+        alignItems:      'center',
+        justifyContent:  'center',
+        fontFamily:      'var(--ab-mono)',
+        color:           'var(--ab-text)',
+        backgroundColor: 'rgba(10,10,15,0.88)',
+        opacity:         show ? 1 : 0,
+        pointerEvents:   isTouchDevice && show ? 'auto' : 'none',
+        transition:      'opacity 400ms var(--ab-ease-out)',
+        zIndex:          2,
+      }}
+    >
       <p style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ab-dim)', marginBottom: 16 }}>
         // Game over
       </p>
@@ -39,7 +49,7 @@ export default function GameOverScreen({ isTouchDevice: _isTouchDevice }: { isTo
       </p>
 
       <p style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ab-accent)' }}>
-        Press Enter or Space to play again
+        {isTouchDevice ? 'Tap to play again' : 'Press Enter or Space to play again'}
       </p>
     </div>
   )

@@ -1,8 +1,8 @@
 import { useGameStore } from './store'
 import { STARTING_LIVES } from './constants'
 
-export default function GameHUD({ isTouchDevice: _isTouchDevice }: { isTouchDevice?: boolean } = {}) {
-  const { score, lives, level, phase } = useGameStore()
+export default function GameHUD({ isTouchDevice = false }: { isTouchDevice?: boolean } = {}) {
+  const { score, lives, level, phase, setPhase } = useGameStore()
 
   if (phase === 'menu' || phase === 'gameover') return null
 
@@ -49,8 +49,35 @@ export default function GameHUD({ isTouchDevice: _isTouchDevice }: { isTouchDevi
         ))}
       </div>
 
-      {/* Pause hint — bottom centre */}
-      {phase === 'playing' && (
+      {/* Touch pause button — bottom centre */}
+      {isTouchDevice && phase === 'playing' && (
+        <button
+          aria-label="Pause"
+          onClick={() => setPhase('paused')}
+          style={{
+            position:      'absolute',
+            bottom:        16,
+            left:          '50%',
+            transform:     'translateX(-50%)',
+            pointerEvents: 'auto',
+            background:    'none',
+            border:        '1px solid var(--ab-muted)',
+            borderRadius:  4,
+            padding:       '6px 14px',
+            color:         'var(--ab-dim)',
+            fontFamily:    'var(--ab-mono)',
+            fontSize:      10,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            cursor:        'pointer',
+          }}
+        >
+          Pause
+        </button>
+      )}
+
+      {/* Esc hint — bottom centre (keyboard only) */}
+      {!isTouchDevice && phase === 'playing' && (
         <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ab-muted)' }}>
           Esc · Pause
         </div>
