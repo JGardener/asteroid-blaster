@@ -22,7 +22,7 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
   const [isTouchDevice, setIsTouchDevice] = useState(false)
 
   useEffect(() => {
-    setIsTouchDevice(navigator.maxTouchPoints > 0)
+    setIsTouchDevice(window.matchMedia('(pointer: coarse)').matches)
   }, [])
 
   useEffect(() => {
