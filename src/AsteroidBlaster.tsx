@@ -8,6 +8,7 @@ import MenuScreen             from './screens/MenuScreen'
 import PauseScreen            from './screens/PauseScreen'
 import GameOverScreen         from './screens/GameOverScreen'
 import LevelTransitionScreen  from './screens/LevelTransitionScreen'
+import LandscapeGuard         from './LandscapeGuard'
 
 export interface AsteroidBlasterProps {
   onClose: () => void
@@ -79,6 +80,7 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
   }
 
   return (
+    <LandscapeGuard>
     <div className="ab-root">
       <PixiCanvas onAppReady={handleAppReady} onError={handleError} />
       {app && <GameLoop app={app} onError={handleError} />}
@@ -120,5 +122,6 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
         Esc ×
       </button>
     </div>
+    </LandscapeGuard>
   )
 }
