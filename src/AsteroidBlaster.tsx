@@ -9,6 +9,7 @@ import PauseScreen            from './screens/PauseScreen'
 import GameOverScreen         from './screens/GameOverScreen'
 import LevelTransitionScreen  from './screens/LevelTransitionScreen'
 import LandscapeGuard         from './LandscapeGuard'
+import VirtualControls        from './VirtualControls'
 
 export interface AsteroidBlasterProps {
   onClose: () => void
@@ -18,6 +19,11 @@ export interface AsteroidBlasterProps {
 export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterProps) {
   const [app, setApp] = useState<PIXI.Application | null>(null)
   const [initError, setInitError] = useState<Error | null>(null)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 0)
+  }, [])
 
   useEffect(() => {
     const el = document.createElement('style')
@@ -84,11 +90,12 @@ export default function AsteroidBlaster({ onClose, onError }: AsteroidBlasterPro
     <div className="ab-root">
       <PixiCanvas onAppReady={handleAppReady} onError={handleError} />
       {app && <GameLoop app={app} onError={handleError} />}
-      <GameHUD />
-      <MenuScreen />
+      <GameHUD isTouchDevice={isTouchDevice} />
+      <MenuScreen isTouchDevice={isTouchDevice} />
       <PauseScreen onClose={onClose} />
-      <GameOverScreen />
+      <GameOverScreen isTouchDevice={isTouchDevice} />
       <LevelTransitionScreen />
+      {isTouchDevice && <VirtualControls />}
 
       <button
         onClick={onClose}

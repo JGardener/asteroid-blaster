@@ -1,6 +1,6 @@
 import { useGameStore } from '../store'
 
-export default function GameOverScreen() {
+export default function GameOverScreen({ isTouchDevice: _isTouchDevice }: { isTouchDevice?: boolean } = {}) {
   const { phase, score, hiScore } = useGameStore()
   const show = phase === 'gameover'
 

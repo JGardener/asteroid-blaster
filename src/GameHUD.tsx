@@ -1,7 +1,7 @@
 import { useGameStore } from './store'
 import { STARTING_LIVES } from './constants'
 
-export default function GameHUD() {
+export default function GameHUD({ isTouchDevice: _isTouchDevice }: { isTouchDevice?: boolean } = {}) {
   const { score, lives, level, phase } = useGameStore()
 
   if (phase === 'menu' || phase === 'gameover') return null

@@ -1,6 +1,6 @@
 import { useGameStore } from '../store'
 
-export default function MenuScreen() {
+export default function MenuScreen({ isTouchDevice: _isTouchDevice }: { isTouchDevice?: boolean } = {}) {
   const phase = useGameStore(s => s.phase)
   const show  = phase === 'menu'
 
