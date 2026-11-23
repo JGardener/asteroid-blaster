@@ -1,5 +1,5 @@
 import { render, screen, cleanup, act } from '@testing-library/react'
-import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import AsteroidBlaster from '../AsteroidBlaster'
 
 vi.mock('../PixiCanvas', () => ({
@@ -13,28 +13,38 @@ vi.mock('../VirtualControls', () => ({
   default: () => <div data-testid="virtual-controls-mock" />,
 }))
 
-function setMaxTouchPoints(n: number) {
-  Object.defineProperty(navigator, 'maxTouchPoints', {
-    writable: true,
-    configurable: true,
-    value: n,
-  })
+// Touch detection uses window.matchMedia('(pointer: coarse)'). Stub it so
+// only that query reports `coarse`; any other query reports no match.
+function stubCoarsePointer(coarse: boolean) {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+    matches: coarse && query === '(pointer: coarse)',
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('AsteroidBlaster touch detection', () => {
-  beforeEach(() => setMaxTouchPoints(0))
-
-  it('renders VirtualControls when maxTouchPoints > 0', () => {
-    setMaxTouchPoints(1)
+  it('renders VirtualControls when the primary pointer is coarse', () => {
+    stubCoarsePointer(true)
     render(<AsteroidBlaster onClose={() => {}} />)
+    expect(window.matchMedia).toHaveBeenCalledWith('(pointer: coarse)')
     expect(screen.getByTestId('virtual-controls-mock')).toBeInTheDocument()
   })
 
-  it('does not render VirtualControls when maxTouchPoints === 0', () => {
-    setMaxTouchPoints(0)
+  it('does not render VirtualControls when the primary pointer is fine', () => {
+    stubCoarsePointer(false)
     render(<AsteroidBlaster onClose={() => {}} />)
+    expect(window.matchMedia).toHaveBeenCalledWith('(pointer: coarse)')
     expect(screen.queryByTestId('virtual-controls-mock')).not.toBeInTheDocument()
   })
 })
