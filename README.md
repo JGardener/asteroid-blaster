@@ -1,5 +1,9 @@
 # Asteroid Blaster
 
+[![CI](https://github.com/JGardener/asteroid-blaster/actions/workflows/ci.yml/badge.svg)](https://github.com/JGardener/asteroid-blaster/actions/workflows/ci.yml)
+
+**[Play it live](https://jgardener-portfolio.vercel.app/#work)** — the game has no standalone deploy; it runs inside my portfolio. Open the "Selected work" section and hit **▶ Play it** on the Asteroid Blaster card to launch it in a modal.
+
 > Browser arcade shooter built with PixiJS v8, React, and TypeScript.
 > Consumed as an npm package by a portfolio SPA — playable inline via a modal.
 
